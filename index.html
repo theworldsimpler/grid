@@ -128,6 +128,10 @@
       transform: translate(-50%, -50%);
     }
 
+    .price-annotation:hover {
+      background: #006EE6;
+    }
+
     .corner-annotation {
       width: 18px;
       height: 18px;
@@ -231,6 +235,13 @@
       color: #666;
       font-size: 0.95rem;
       margin-top: 10px;
+    }
+
+    .icloud-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin: 18px 0;
     }
 
     @media (max-width: 700px) {
@@ -338,10 +349,14 @@
   <div class="panel-backdrop" id="accountPanel">
     <div class="panel">
       <h2>Account</h2>
-      <p id="accountStatus">Not signed in.</p>
+      <p id="accountStatus">Checking iCloud status...</p>
+
+      <div class="icloud-buttons">
+        <div id="apple-sign-in-button"></div>
+        <div id="apple-sign-out-button"></div>
+      </div>
+
       <div class="panel-actions">
-        <button class="panel-button" id="signInButton">Sign in with iCloud</button>
-        <button class="panel-button danger" id="signOutButton">Sign Out</button>
         <button class="panel-button secondary" data-close-panel>Close</button>
       </div>
     </div>
@@ -350,11 +365,12 @@
   <script>
     const needsHttps = location.protocol !== "https:";
     const needsGridSlash = location.pathname === "/grid";
+    const needsNoWww = location.hostname === "www.theworldsimpler.com";
 
-    if (needsHttps || needsGridSlash) {
+    if (needsHttps || needsGridSlash || needsNoWww) {
       location.replace(
         "https://" +
-        location.hostname +
+        (needsNoWww ? "theworldsimpler.com" : location.hostname) +
         (needsGridSlash ? "/grid/" : location.pathname) +
         location.search +
         location.hash
@@ -403,6 +419,16 @@
           apiTokenAuth: {
             apiToken: CLOUDKIT_API_TOKEN,
             persist: true
+          },
+          auth: {
+            signInButton: {
+              id: "apple-sign-in-button",
+              theme: "black"
+            },
+            signOutButton: {
+              id: "apple-sign-out-button",
+              theme: "black"
+            }
           }
         }
       ]
@@ -443,8 +469,6 @@
     document.getElementById("accountButton").addEventListener("click", openAccountPanel);
     document.getElementById("runSearchButton").addEventListener("click", runSearch);
     document.getElementById("saveListingButton").addEventListener("click", saveListing);
-    document.getElementById("signInButton").addEventListener("click", signIn);
-    document.getElementById("signOutButton").addEventListener("click", signOut);
 
     document.querySelectorAll("[data-close-panel]").forEach(button => {
       button.addEventListener("click", closePanels);
@@ -471,19 +495,13 @@
 
     async function initializeAuth() {
       try {
-        if (typeof container.setUpAuth === "function") {
-          const identity = await container.setUpAuth();
-          if (identity) {
-            currentUserIdentity = identity;
-          }
-        }
-
-        updateAccountStatus();
+        await refreshUserIdentity();
 
         if (typeof container.whenUserSignsIn === "function") {
           container.whenUserSignsIn().then(identity => {
             currentUserIdentity = identity;
             updateAccountStatus();
+            initializeAuthWatchersAgain();
           });
         }
 
@@ -491,6 +509,7 @@
           container.whenUserSignsOut().then(() => {
             currentUserIdentity = null;
             updateAccountStatus();
+            initializeAuthWatchersAgain();
           });
         }
       } catch (error) {
@@ -499,26 +518,25 @@
       }
     }
 
-    async function signIn() {
-      try {
-        const identity = await container.signIn();
-        currentUserIdentity = identity;
-        updateAccountStatus();
-      } catch (error) {
-        console.error(error);
-        showStatus("Could not sign in with iCloud.");
-      }
+    function initializeAuthWatchersAgain() {
+      setTimeout(() => {
+        initializeAuth();
+      }, 500);
     }
 
-    async function signOut() {
+    async function refreshUserIdentity() {
       try {
-        await container.signOut();
-        currentUserIdentity = null;
-        updateAccountStatus();
+        if (typeof container.setUpAuth === "function") {
+          const identity = await container.setUpAuth();
+          currentUserIdentity = identity || null;
+        }
       } catch (error) {
         console.error(error);
-        showStatus("Could not sign out.");
+        currentUserIdentity = null;
       }
+
+      updateAccountStatus();
+      return currentUserIdentity;
     }
 
     function updateAccountStatus() {
@@ -529,9 +547,6 @@
       } else {
         accountStatusEl.textContent = "Not signed in.";
       }
-
-      document.getElementById("signOutButton").style.display = recordName ? "inline-flex" : "none";
-      document.getElementById("signInButton").style.display = recordName ? "none" : "inline-flex";
     }
 
     function getUserRecordName() {
@@ -650,22 +665,24 @@
         return;
       }
 
-      if (event.target.closest(".mk-map-view")) {
-        const coordinate = map.convertPointOnPageToCoordinate(
-          new DOMPoint(event.pageX, event.pageY)
-        );
-
-        if (!coordinate || currentPoints.length >= 9) {
-          return;
-        }
-
-        currentPoints.push({
-          latitude: coordinate.latitude,
-          longitude: coordinate.longitude
-        });
-
-        updateCurrentBorderPreview();
+      if (event.target.closest("button")) {
+        return;
       }
+
+      const coordinate = map.convertPointOnPageToCoordinate(
+        new DOMPoint(event.pageX, event.pageY)
+      );
+
+      if (!coordinate || currentPoints.length >= 9) {
+        return;
+      }
+
+      currentPoints.push({
+        latitude: coordinate.latitude,
+        longitude: coordinate.longitude
+      });
+
+      updateCurrentBorderPreview();
     }
 
     function updateCurrentBorderPreview() {
@@ -751,13 +768,12 @@
           return;
         }
 
-        if (!getUserRecordName()) {
-          await signIn();
+        await refreshUserIdentity();
 
-          if (!getUserRecordName()) {
-            showStatus("Sign in with iCloud before posting.");
-            return;
-          }
+        if (!getUserRecordName()) {
+          showStatus("Sign in with iCloud before posting.");
+          openAccountPanel();
+          return;
         }
 
         const now = new Date();
@@ -783,8 +799,8 @@
             link: { value: textValue("linkInput") },
             areaText: { value: "" },
             creatorID: { value: getUserRecordName() },
-            createdDate: { value: now.toISOString() },
-            expiryDate: { value: expiryDate.toISOString() }
+            createdDate: { value: now.getTime() },
+            expiryDate: { value: expiryDate.getTime() }
           }
         };
 
@@ -907,9 +923,10 @@
       );
     }
 
-    function openAccountPanel() {
+    async function openAccountPanel() {
       updateAccountStatus();
       openPanel("accountPanel");
+      await refreshUserIdentity();
     }
 
     function openPanel(id) {
