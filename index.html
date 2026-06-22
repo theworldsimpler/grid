@@ -83,6 +83,11 @@
       color: #FFFFFF;
     }
 
+    .panel-button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
     #toolbar {
       display: flex;
       flex-wrap: wrap;
@@ -237,11 +242,29 @@
       margin-top: 10px;
     }
 
+    .error-note {
+      color: #FF3B30;
+      font-size: 0.95rem;
+      margin-top: 12px;
+      min-height: 20px;
+    }
+
     .icloud-buttons {
       display: flex;
       flex-direction: column;
       gap: 12px;
       margin: 18px 0;
+    }
+
+    .payment-amount {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+
+    #express-checkout-element {
+      min-height: 52px;
+      margin: 12px 0;
     }
 
     @media (max-width: 700px) {
@@ -338,11 +361,24 @@
       <input id="expiryInput" type="date">
 
       <div class="panel-actions">
-        <button class="panel-button" id="saveListingButton">Post</button>
+        <button class="panel-button" id="saveListingButton">Continue to Apple Pay</button>
         <button class="panel-button secondary" data-close-panel>Cancel</button>
       </div>
 
       <div class="small-note" id="postNote">Tap at least 3 points on the map to create a border.</div>
+    </div>
+  </div>
+
+  <div class="panel-backdrop" id="paymentPanel">
+    <div class="panel">
+      <h2>Apple Pay</h2>
+      <div class="payment-amount" id="paymentAmountText">Listing fee: —</div>
+      <div id="express-checkout-element"></div>
+      <div class="error-note" id="paymentError"></div>
+      <div class="small-note">The listing is only posted after Apple Pay succeeds.</div>
+      <div class="panel-actions">
+        <button class="panel-button secondary" id="cancelPaymentButton">Cancel</button>
+      </div>
     </div>
   </div>
 
@@ -380,11 +416,17 @@
 
   <script src="https://cdn.apple-cloudkit.com/ck/2/cloudkit.js"></script>
   <script src="https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.js"></script>
+  <script src="https://js.stripe.com/v3/"></script>
 
   <script>
     const CLOUDKIT_CONTAINER_ID = "iCloud.Grid";
     const CLOUDKIT_API_TOKEN = "e73d68b176aa0efd24dde0748e2619b584e9e9a05ed0d9f6313c4d662b345e1e";
     const CLOUDKIT_ENVIRONMENT = "production";
+
+    const BACKEND_BASE_URL = "https://grid-server-kpgm.onrender.com";
+    const CONFIG_URL = BACKEND_BASE_URL + "/config";
+    const ESTIMATE_PRICE_URL = BACKEND_BASE_URL + "/estimate-price";
+    const CREATE_PAYMENT_INTENT_URL = BACKEND_BASE_URL + "/create-payment-intent";
 
     const MAPKIT_TOKENS = {
       "theworldsimpler.com": "eyJraWQiOiJYUzdER0dMNllZIiwidHlwIjoiSldUIiwiYWxnIjoiRVMyNTYifQ.eyJpc3MiOiI3NDk2UThGQUgzIiwiaWF0IjoxNzgyMTQ2Mjg5LCJvcmlnaW4iOiJ0aGV3b3JsZHNpbXBsZXIuY29tIiwic2NvcGUiOiJtYXBraXRfanMifQ.pOyZBMqBu5QVFpY4ZkWIiB0oTAnVzSeu0S8ZHINMiqqKeb7PmI99tN5Sm5SyDWPOar4jYAYwh_FEvmb-WKaFkg",
@@ -395,6 +437,8 @@
 
     const statusEl = document.getElementById("status");
     const accountStatusEl = document.getElementById("accountStatus");
+    const paymentErrorEl = document.getElementById("paymentError");
+    const paymentAmountTextEl = document.getElementById("paymentAmountText");
 
     let container;
     let publicDatabase;
@@ -406,6 +450,16 @@
     let currentPreviewOverlays = [];
     let currentCornerAnnotations = [];
     let searchAnnotation = null;
+
+    let backendConfigPromise = null;
+    let stripeInstance = null;
+    let stripeElements = null;
+    let expressCheckoutElement = null;
+    let pendingListingRecord = null;
+    let pendingPaymentPoints = [];
+    let pendingPaymentExpiryDateISO = "";
+    let pendingPaymentAmountCents = 0;
+    let isPostingAfterPayment = false;
 
     if (!MAPKIT_TOKEN) {
       showStatus("Missing MapKit token for this domain.");
@@ -468,7 +522,8 @@
     document.getElementById("clearButton").addEventListener("click", clearCurrentBorder);
     document.getElementById("accountButton").addEventListener("click", openAccountPanel);
     document.getElementById("runSearchButton").addEventListener("click", runSearch);
-    document.getElementById("saveListingButton").addEventListener("click", saveListing);
+    document.getElementById("saveListingButton").addEventListener("click", prepareListingPayment);
+    document.getElementById("cancelPaymentButton").addEventListener("click", cancelPayment);
 
     document.querySelectorAll("[data-close-panel]").forEach(button => {
       button.addEventListener("click", closePanels);
@@ -665,7 +720,7 @@
         return;
       }
 
-      if (event.target.closest("button")) {
+      if (event.target.closest("button, a, input, textarea")) {
         return;
       }
 
@@ -761,8 +816,13 @@
       openPanel("postPanel");
     }
 
-    async function saveListing() {
+    async function prepareListingPayment() {
+      const button = document.getElementById("saveListingButton");
+
       try {
+        button.disabled = true;
+        button.textContent = "Checking fee...";
+
         if (currentPoints.length < 3) {
           showStatus("Tap at least 3 points on the map before posting.");
           return;
@@ -776,45 +836,387 @@
           return;
         }
 
-        const now = new Date();
-        const expiryValue = document.getElementById("expiryInput").value;
-        const expiryDate = expiryValue
-          ? new Date(expiryValue + "T23:59:59")
-          : new Date(now.getTime() + 365 * 24 * 3600 * 1000);
+        const expiryDate = getSelectedExpiryDate();
+        const expiryDateISO = expiryDate.toISOString();
 
-        const record = {
-          recordType: "Border",
-          fields: {
-            points: {
-              value: currentPoints.map(point => ({
-                latitude: point.latitude,
-                longitude: point.longitude
-              }))
-            },
-            owner: { value: textValue("ownerInput") },
-            price: { value: textValue("priceInput") },
-            contact: { value: textValue("contactInput") },
-            address: { value: textValue("addressInput") },
-            description: { value: textValue("descriptionInput") },
-            link: { value: textValue("linkInput") },
-            areaText: { value: "" },
-            creatorID: { value: getUserRecordName() },
-            createdDate: { value: now.getTime() },
-            expiryDate: { value: expiryDate.getTime() }
-          }
-        };
+        const estimate = await estimateListingFee(expiryDateISO);
+        const amountCents = estimate.amountCents;
 
-        await publicDatabase.saveRecords(record);
+        if (!amountCents || amountCents <= 0) {
+          throw new Error("Apple Pay amount must be greater than $0. Listing was not posted.");
+        }
+
+        pendingPaymentPoints = currentPoints.map(point => ({
+          latitude: point.latitude,
+          longitude: point.longitude
+        }));
+
+        pendingPaymentExpiryDateISO = expiryDateISO;
+        pendingPaymentAmountCents = amountCents;
+        pendingListingRecord = buildListingRecord(expiryDate);
+
+        paymentAmountTextEl.textContent = "Listing fee: " + formatUSD(amountCents);
+        setPaymentError("");
 
         closePanels();
+        openPanel("paymentPanel");
+
+        await mountApplePay(amountCents);
+      } catch (error) {
+        console.error(error);
+        showStatus(error.message || "Could not prepare Apple Pay.");
+      } finally {
+        button.disabled = false;
+        button.textContent = "Continue to Apple Pay";
+      }
+    }
+
+    async function estimateListingFee(expiryDateISO) {
+      const response = await fetch(ESTIMATE_PRICE_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          points: currentPoints.map(point => ({
+            latitude: point.latitude,
+            longitude: point.longitude
+          })),
+          expiryDate: expiryDateISO
+        })
+      });
+
+      const json = await safeJson(response);
+
+      if (!response.ok || json.error) {
+        throw new Error(json.error || "Area and duration too broad.");
+      }
+
+      const amountCents = amountCentsFromServerJson(json);
+
+      if (!amountCents || amountCents <= 0) {
+        throw new Error("Could not calculate the Apple Pay amount.");
+      }
+
+      return {
+        json,
+        amountCents
+      };
+    }
+
+    async function mountApplePay(amountCents) {
+      try {
+        destroyExpressCheckoutElement();
+
+        const stripe = await getStripe();
+
+        stripeElements = stripe.elements({
+          mode: "payment",
+          amount: amountCents,
+          currency: "usd",
+          appearance: {
+            theme: "stripe"
+          }
+        });
+
+        expressCheckoutElement = stripeElements.create("expressCheckout", {
+          paymentMethods: {
+            applePay: "always",
+            googlePay: "never",
+            link: "never",
+            paypal: "never",
+            amazonPay: "never",
+            klarna: "never"
+          },
+          buttonType: {
+            applePay: "pay"
+          },
+          buttonTheme: {
+            applePay: "black"
+          },
+          buttonHeight: 48,
+          layout: {
+            maxColumns: 1,
+            maxRows: 1,
+            overflow: "never"
+          },
+          business: {
+            name: "Grid"
+          },
+          lineItems: [
+            {
+              name: "Grid Listing",
+              amount: amountCents
+            }
+          ]
+        });
+
+        expressCheckoutElement.on("click", event => {
+          event.resolve({
+            lineItems: [
+              {
+                name: "Grid Listing",
+                amount: amountCents
+              }
+            ]
+          });
+        });
+
+        expressCheckoutElement.on("confirm", async event => {
+          await handleApplePayConfirm(event);
+        });
+
+        expressCheckoutElement.on("cancel", () => {
+          setPaymentError("Payment cancelled. Listing was not posted.");
+        });
+
+        expressCheckoutElement.mount("#express-checkout-element");
+
+        setTimeout(() => {
+          if (!document.querySelector("#express-checkout-element iframe")) {
+            setPaymentError("Apple Pay did not appear. Use Safari on iPhone or Mac, make sure Apple Pay is set up, and make sure the domain is registered in Stripe.");
+          }
+        }, 2500);
+      } catch (error) {
+        console.error(error);
+        setPaymentError(error.message || "Could not load Apple Pay.");
+      }
+    }
+
+    async function handleApplePayConfirm(event) {
+      if (isPostingAfterPayment) {
+        return;
+      }
+
+      try {
+        isPostingAfterPayment = true;
+        setPaymentError("Processing Apple Pay...");
+
+        if (!pendingListingRecord || pendingPaymentPoints.length < 3) {
+          throw new Error("Listing information missing. Please try again.");
+        }
+
+        const submitResult = await stripeElements.submit();
+
+        if (submitResult.error) {
+          throw new Error(submitResult.error.message || "Payment failed.");
+        }
+
+        const clientSecret = await createPaymentIntent();
+
+        const result = await stripeInstance.confirmPayment({
+          elements: stripeElements,
+          clientSecret,
+          confirmParams: {
+            return_url: window.location.href
+          },
+          redirect: "if_required"
+        });
+
+        if (result.error) {
+          throw new Error(result.error.message || "Payment failed.");
+        }
+
+        await savePendingListingAfterPayment();
+
+        closePanels();
+        destroyExpressCheckoutElement();
         clearPostFields();
         clearCurrentBorder();
         await loadBorders();
 
-        showStatus("Listing posted.");
+        showStatus("Payment successful. Listing posted.");
       } catch (error) {
         console.error(error);
-        showStatus("Could not post listing: " + (error.message || error));
+        setPaymentError(error.message || "Payment failed. Listing was not posted.");
+      } finally {
+        isPostingAfterPayment = false;
+      }
+    }
+
+    async function createPaymentIntent() {
+      const response = await fetch(CREATE_PAYMENT_INTENT_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          points: pendingPaymentPoints,
+          expiryDate: pendingPaymentExpiryDateISO
+        })
+      });
+
+      const json = await safeJson(response);
+
+      if (!response.ok || json.error) {
+        throw new Error(json.error || "Could not create Apple Pay payment.");
+      }
+
+      const serverAmountCents = amountCentsFromServerJson(json);
+
+      if (
+        serverAmountCents &&
+        pendingPaymentAmountCents &&
+        serverAmountCents !== pendingPaymentAmountCents
+      ) {
+        throw new Error("Listing fee changed. Please try again.");
+      }
+
+      const clientSecret = json.clientSecret || json.client_secret;
+
+      if (!clientSecret) {
+        throw new Error("Missing Stripe client secret.");
+      }
+
+      return clientSecret;
+    }
+
+    async function savePendingListingAfterPayment() {
+      if (!pendingListingRecord) {
+        throw new Error("No listing ready to post.");
+      }
+
+      await publicDatabase.saveRecords(pendingListingRecord);
+
+      pendingListingRecord = null;
+      pendingPaymentPoints = [];
+      pendingPaymentExpiryDateISO = "";
+      pendingPaymentAmountCents = 0;
+    }
+
+    function buildListingRecord(expiryDate) {
+      const now = new Date();
+
+      return {
+        recordType: "Border",
+        recordName: makeUUID(),
+        fields: {
+          points: {
+            value: currentPoints.map(point => ({
+              latitude: point.latitude,
+              longitude: point.longitude
+            }))
+          },
+          owner: { value: textValue("ownerInput") },
+          price: { value: textValue("priceInput") },
+          contact: { value: textValue("contactInput") },
+          address: { value: textValue("addressInput") },
+          description: { value: textValue("descriptionInput") },
+          link: { value: textValue("linkInput") },
+          areaText: { value: formatAreaText(currentPoints) },
+          creatorID: { value: getUserRecordName() },
+          createdDate: { value: now.getTime() },
+          expiryDate: { value: expiryDate.getTime() }
+        }
+      };
+    }
+
+    async function getStripe() {
+      if (stripeInstance) {
+        return stripeInstance;
+      }
+
+      const config = await getBackendConfig();
+      const publishableKey = config.publishableKey;
+
+      if (!publishableKey) {
+        throw new Error("Missing Stripe publishable key.");
+      }
+
+      stripeInstance = Stripe(publishableKey);
+      return stripeInstance;
+    }
+
+    async function getBackendConfig() {
+      if (!backendConfigPromise) {
+        backendConfigPromise = fetch(CONFIG_URL).then(async response => {
+          const json = await safeJson(response);
+
+          if (!response.ok) {
+            throw new Error(json.error || "Could not load Stripe config.");
+          }
+
+          return json;
+        });
+      }
+
+      return backendConfigPromise;
+    }
+
+    function destroyExpressCheckoutElement() {
+      if (expressCheckoutElement) {
+        try {
+          expressCheckoutElement.destroy();
+        } catch (error) {
+          console.warn(error);
+        }
+      }
+
+      expressCheckoutElement = null;
+      stripeElements = null;
+
+      const mount = document.getElementById("express-checkout-element");
+      if (mount) {
+        mount.innerHTML = "";
+      }
+    }
+
+    function cancelPayment() {
+      destroyExpressCheckoutElement();
+      pendingListingRecord = null;
+      pendingPaymentPoints = [];
+      pendingPaymentExpiryDateISO = "";
+      pendingPaymentAmountCents = 0;
+      setPaymentError("");
+      closePanels();
+      openPanel("postPanel");
+    }
+
+    function setPaymentError(message) {
+      paymentErrorEl.textContent = message || "";
+    }
+
+    function amountCentsFromServerJson(json) {
+      const amount =
+        numberValue(json.amount) ??
+        numberValue(json.amountCents) ??
+        numberValue(json.amount_cents);
+
+      if (amount !== null && amount !== undefined && !Number.isNaN(amount)) {
+        return Math.round(amount);
+      }
+
+      const calculatedFee = numberValue(json.calculatedFee);
+
+      if (
+        calculatedFee !== null &&
+        calculatedFee !== undefined &&
+        !Number.isNaN(calculatedFee)
+      ) {
+        return Math.round(calculatedFee * 100);
+      }
+
+      return 0;
+    }
+
+    function numberValue(value) {
+      if (typeof value === "number") {
+        return value;
+      }
+
+      if (typeof value === "string" && value.trim() !== "") {
+        const parsed = Number(value);
+        return Number.isNaN(parsed) ? null : parsed;
+      }
+
+      return null;
+    }
+
+    async function safeJson(response) {
+      try {
+        return await response.json();
+      } catch {
+        return {};
       }
     }
 
@@ -834,12 +1236,49 @@
     }
 
     function setDefaultExpiryDate() {
-      const date = new Date(Date.now() + 365 * 24 * 3600 * 1000);
-      document.getElementById("expiryInput").value = date.toISOString().split("T")[0];
+      const input = document.getElementById("expiryInput");
+      const minDate = new Date(Date.now() + 3 * 24 * 3600 * 1000);
+      const maxDate = new Date(Date.now() + 365 * 24 * 3600 * 1000);
+
+      input.min = formatDateInput(minDate);
+      input.max = formatDateInput(maxDate);
+      input.value = formatDateInput(maxDate);
+    }
+
+    function getSelectedExpiryDate() {
+      const input = document.getElementById("expiryInput");
+      const minDate = new Date(Date.now() + 3 * 24 * 3600 * 1000);
+      const maxDate = new Date(Date.now() + 365 * 24 * 3600 * 1000);
+
+      let selectedDate = input.value
+        ? new Date(input.value + "T23:59:59")
+        : maxDate;
+
+      if (selectedDate < minDate) {
+        selectedDate = minDate;
+      }
+
+      if (selectedDate > maxDate) {
+        selectedDate = maxDate;
+      }
+
+      input.value = formatDateInput(selectedDate);
+      return selectedDate;
+    }
+
+    function formatDateInput(date) {
+      return date.toISOString().split("T")[0];
     }
 
     function textValue(id) {
       return document.getElementById(id).value.trim().slice(0, 250);
+    }
+
+    function formatUSD(amountCents) {
+      return (amountCents / 100).toLocaleString("en-US", {
+        style: "currency",
+        currency: "USD"
+      });
     }
 
     function runSearch() {
@@ -1117,6 +1556,78 @@
         latitude: latitude / points.length,
         longitude: longitude / points.length
       };
+    }
+
+    function calculatePolygonAreaMeters2(points) {
+      if (!Array.isArray(points) || points.length < 3) {
+        return 0;
+      }
+
+      const radius = 6371008.8;
+      const unwrapped = [];
+
+      let previousLongitude = points[0].longitude;
+      let offset = 0;
+
+      unwrapped.push({
+        latitude: points[0].latitude,
+        longitude: points[0].longitude
+      });
+
+      for (let i = 1; i < points.length; i++) {
+        let longitude = points[i].longitude;
+        const delta = longitude - previousLongitude;
+
+        if (delta > 180) {
+          offset -= 360;
+        } else if (delta < -180) {
+          offset += 360;
+        }
+
+        longitude += offset;
+        previousLongitude = points[i].longitude;
+
+        unwrapped.push({
+          latitude: points[i].latitude,
+          longitude
+        });
+      }
+
+      let area = 0;
+
+      for (let i = 0; i < unwrapped.length; i++) {
+        const j = (i + 1) % unwrapped.length;
+
+        const lat1 = unwrapped[i].latitude * Math.PI / 180;
+        const lat2 = unwrapped[j].latitude * Math.PI / 180;
+        const lon1 = unwrapped[i].longitude * Math.PI / 180;
+        const lon2 = unwrapped[j].longitude * Math.PI / 180;
+
+        const dLon = lon2 - lon1;
+
+        area += dLon * (Math.sin(lat1) + Math.sin(lat2));
+      }
+
+      return Math.abs(area) * radius * radius / 2;
+    }
+
+    function formatAreaText(points) {
+      const squareKilometers = calculatePolygonAreaMeters2(points) / 1000000;
+      return squareKilometers.toLocaleString("en-US", {
+        maximumFractionDigits: 2
+      }) + " km²";
+    }
+
+    function makeUUID() {
+      if (crypto && typeof crypto.randomUUID === "function") {
+        return crypto.randomUUID();
+      }
+
+      return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, character => {
+        const random = Math.random() * 16 | 0;
+        const value = character === "x" ? random : (random & 0x3 | 0x8);
+        return value.toString(16);
+      });
     }
 
     function showStatus(message) {
