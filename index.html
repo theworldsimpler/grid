@@ -271,7 +271,7 @@
       margin-bottom: 16px;
     }
 
-    #apple-pay-button-element {
+    #express-checkout-element {
       min-height: 52px;
       margin: 18px 0 12px 0;
     }
@@ -383,7 +383,7 @@
       <h2>Apple Pay</h2>
       <div class="payment-amount" id="paymentAmountText">Listing fee: —</div>
 
-      <div id="apple-pay-button-element"></div>
+      <div id="express-checkout-element"></div>
       <div class="info-note" id="walletInfo"></div>
 
       <div class="error-note" id="paymentError"></div>
@@ -467,8 +467,7 @@
     let backendConfigPromise = null;
     let stripeInstance = null;
     let stripeElements = null;
-    let paymentRequest = null;
-    let paymentRequestButtonElement = null;
+    let expressCheckoutElement = null;
     let pendingListingRecord = null;
     let pendingPaymentPoints = [];
     let pendingPaymentExpiryDateISO = "";
@@ -879,7 +878,7 @@
         closePanels();
         openPanel("paymentPanel");
 
-        await mountApplePayButton(pendingPaymentClientSecret, amountCents);
+        await mountApplePayOnly(pendingPaymentClientSecret, amountCents);
       } catch (error) {
         console.error(error);
         showStatus(error.message || "Could not prepare Apple Pay.");
@@ -925,62 +924,89 @@
       };
     }
 
-    async function mountApplePayButton(clientSecret, amountCents) {
+    async function mountApplePayOnly(clientSecret, amountCents) {
       try {
         destroyPaymentElements();
 
         const stripe = await getStripe();
 
-        stripeElements = stripe.elements();
-
-        paymentRequest = stripe.paymentRequest({
-          country: "CA",
-          currency: "usd",
-          total: {
-            label: "Grid Listing",
-            amount: amountCents
-          },
-          requestPayerName: false,
-          requestPayerEmail: false,
-          requestPayerPhone: false,
-          requestShipping: false
-        });
-
-        const canMakePayment = await paymentRequest.canMakePayment();
-
-        if (!canMakePayment || !canMakePayment.applePay) {
-          setWalletInfo("Apple Pay is not available in this session. Listing was not posted.");
-          return;
-        }
-
-        paymentRequest.on("paymentmethod", async event => {
-          await confirmApplePayPaymentMethodAndPost(event);
-        });
-
-        paymentRequest.on("cancel", () => {
-          setPaymentError("Payment cancelled. Listing was not posted.");
-        });
-
-        paymentRequestButtonElement = stripeElements.create("paymentRequestButton", {
-          paymentRequest,
-          style: {
-            paymentRequestButton: {
-              type: "plain",
-              theme: "dark",
-              height: "48px"
-            }
+        stripeElements = stripe.elements({
+          clientSecret,
+          appearance: {
+            theme: "stripe"
           }
         });
 
-        paymentRequestButtonElement.mount("#apple-pay-button-element");
-        setWalletInfo("");
+        expressCheckoutElement = stripeElements.create("expressCheckout", {
+          paymentMethods: {
+            applePay: "always",
+            googlePay: "never",
+            link: "auto",
+            paypal: "never",
+            amazonPay: "never",
+            klarna: "never"
+          },
+          paymentMethodOrder: ["applePay", "link"],
+          buttonType: {
+            applePay: "plain"
+          },
+          buttonTheme: {
+            applePay: "black"
+          },
+          buttonHeight: 48,
+          layout: {
+            maxColumns: 1,
+            maxRows: 1,
+            overflow: "never"
+          },
+          business: {
+            name: "Grid"
+          },
+          lineItems: [
+            {
+              name: "Grid Listing",
+              amount: amountCents
+            }
+          ]
+        });
+
+        expressCheckoutElement.on("ready", event => {
+          const methods = event.availablePaymentMethods || {};
+
+          if (!methods.applePay) {
+            setWalletInfo("Apple Pay is not available in this session. Listing was not posted.");
+          } else {
+            setWalletInfo("");
+          }
+        });
+
+        expressCheckoutElement.on("click", event => {
+          event.resolve({
+            lineItems: [
+              {
+                name: "Grid Listing",
+                amount: amountCents
+              }
+            ]
+          });
+        });
+
+        expressCheckoutElement.on("confirm", async () => {
+          await confirmApplePayAndPost();
+        });
+
+        expressCheckoutElement.on("cancel", () => {
+          setPaymentError("Payment cancelled. Listing was not posted.");
+        });
+
+        expressCheckoutElement.mount("#express-checkout-element");
       } catch (error) {
         console.error(error);
         setPaymentError(error.message || "Could not load Apple Pay.");
       }
     }
 
-    async function confirmApplePayPaymentMethodAndPost(event) {
+    async function confirmApplePayAndPost() {
       if (isPostingAfterPayment) {
         return;
       }
@@ -997,38 +1023,28 @@
           throw new Error("Missing payment session. Please try again.");
         }
 
-        const result = await stripeInstance.confirmCardPayment(
-          pendingPaymentClientSecret,
-          {
-            payment_method: event.paymentMethod.id
+        const submitResult = await stripeElements.submit();
+
+        if (submitResult.error) {
+          throw new Error(submitResult.error.message || "Apple Pay failed.");
+        }
+
+        const result = await stripeInstance.confirmPayment({
+          elements: stripeElements,
+          clientSecret: pendingPaymentClientSecret,
+          confirmParams: {
+            return_url: window.location.href
           },
-          {
-            handleActions: false
-          }
-        );
+          redirect: "if_required"
+        });
 
         if (result.error) {
-          event.complete("fail");
           throw new Error(result.error.message || "Apple Pay failed.");
         }
 
-        event.complete("success");
+        const paymentIntent = result.paymentIntent;
 
-        let paymentIntent = result.paymentIntent;
-
-        if (paymentIntent && paymentIntent.status === "requires_action") {
-          const actionResult = await stripeInstance.confirmCardPayment(
-            pendingPaymentClientSecret
-          );
-
-          if (actionResult.error) {
-            throw new Error(actionResult.error.message || "Apple Pay failed.");
-          }
-
-          paymentIntent = actionResult.paymentIntent;
-        }
-
-        if (!paymentIntent || paymentIntent.status !== "succeeded") {
+        if (paymentIntent && paymentIntent.status && paymentIntent.status !== "succeeded") {
           throw new Error("Apple Pay was not completed. Listing was not posted.");
         }
 
@@ -1118,21 +1134,20 @@
     }
 
     function destroyPaymentElements() {
-      if (paymentRequestButtonElement) {
+      if (expressCheckoutElement) {
         try {
-          paymentRequestButtonElement.destroy();
+          expressCheckoutElement.destroy();
         } catch (error) {
           console.warn(error);
         }
       }
 
-      paymentRequestButtonElement = null;
-      paymentRequest = null;
+      expressCheckoutElement = null;
       stripeElements = null;
 
-      const applePayMount = document.getElementById("apple-pay-button-element");
-      if (applePayMount) {
-        applePayMount.innerHTML = "";
+      const expressMount = document.getElementById("express-checkout-element");
+      if (expressMount) {
+        expressMount.innerHTML = "";
       }
     }
 
