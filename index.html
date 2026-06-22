@@ -144,9 +144,9 @@
   </div>
 
   <div class="section">
-  <div id="status" hidden></div>
-  <div id="map"></div>
-</div>
+    <div id="status" hidden></div>
+    <div id="map"></div>
+  </div>
 
   <div class="section">
     <h1>Support</h1>
@@ -162,6 +162,21 @@
     <h1>Privacy Policy</h1>
     <p>Refer to Grid.</p>
   </div>
+
+  <script>
+    const needsHttps = location.protocol !== "https:";
+    const needsGridSlash = location.pathname === "/grid";
+
+    if (needsHttps || needsGridSlash) {
+      location.replace(
+        "https://" +
+        location.hostname +
+        (needsGridSlash ? "/grid/" : location.pathname) +
+        location.search +
+        location.hash
+      );
+    }
+  </script>
 
   <script src="https://cdn.apple-cloudkit.com/ck/2/cloudkit.js"></script>
   <script src="https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.js"></script>
@@ -180,6 +195,7 @@
     const statusEl = document.getElementById("status");
 
     if (!MAPKIT_TOKEN) {
+      statusEl.hidden = false;
       statusEl.textContent = "Missing MapKit token for this domain.";
     }
 
@@ -308,10 +324,11 @@
         }
 
       } catch (error) {
-  console.error(error);
-  statusEl.textContent = "Could not load Grid listings: " + (error.message || error);
-  setStartupZoomedOutRegion();
-}
+        console.error(error);
+        statusEl.hidden = false;
+        statusEl.textContent = "Could not load Grid listings: " + (error.message || error);
+        setStartupZoomedOutRegion();
+      }
     }
 
     function createPriceAnnotation(coordinate, price, data) {
