@@ -102,6 +102,7 @@
     }
 
     #map {
+      position: relative;
       width: 100%;
       height: 75vh;
       min-height: 650px;
@@ -109,6 +110,29 @@
       overflow: hidden;
       border: 1px solid #ddd;
       background: #eeeeee;
+    }
+
+    #markerLayer {
+      position: absolute;
+      inset: 0;
+      z-index: 9999;
+      pointer-events: none;
+    }
+
+    #markerLayer .price-annotation,
+    #markerLayer .corner-annotation,
+    #markerLayer .search-annotation {
+      position: absolute;
+      transform: translate(-50%, -50%);
+    }
+
+    #markerLayer .price-annotation {
+      pointer-events: auto;
+    }
+
+    #markerLayer .corner-annotation,
+    #markerLayer .search-annotation {
+      pointer-events: none;
     }
 
     .price-annotation {
@@ -130,6 +154,7 @@
       justify-content: center;
       cursor: pointer;
       box-shadow: none;
+      transform: translate(-50%, -50%);
     }
 
     .price-annotation:hover {
@@ -142,6 +167,7 @@
       border-radius: 50%;
       background: #FFFFFF;
       border: 2px solid #007AFF;
+      transform: translate(-50%, -50%);
     }
 
     .search-annotation {
@@ -151,6 +177,7 @@
       background: #FF3B30;
       border: 3px solid #FFFFFF;
       box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      transform: translate(-50%, -50%);
     }
 
     .listing-callout {
@@ -490,11 +517,11 @@
     let currentUserIdentity = null;
 
     let savedOverlays = [];
-    let savedAnnotations = [];
+    let savedPriceMarkers = [];
     let currentPoints = [];
     let currentPreviewOverlays = [];
-    let currentCornerAnnotations = [];
-    let searchAnnotation = null;
+    let currentCornerMarkers = [];
+    let searchMarker = null;
 
     let backendConfigPromise = null;
     let stripeInstance = null;
@@ -553,6 +580,11 @@
       isRotationEnabled: true
     });
 
+    const mapElement = document.getElementById("map");
+    const markerLayer = document.createElement("div");
+    markerLayer.id = "markerLayer";
+    mapElement.appendChild(markerLayer);
+
     map.mapType = hybridMapType;
     map.showsCompass = mapkit.FeatureVisibility.Visible;
     map.showsZoomControl = true;
@@ -562,6 +594,7 @@
     applyMapSettings();
     setStartupZoomedOutRegion();
     setDefaultExpiryDate();
+    installMarkerPositionUpdates();
 
     document.getElementById("searchButton").addEventListener("click", () => openPanel("searchPanel"));
     document.getElementById("locateButton").addEventListener("click", locateUser);
@@ -719,7 +752,7 @@
 
           const center = polygonCenter(points);
 
-          const annotation = createPriceAnnotation(
+          const priceMarker = createDomPriceMarker(
             new mapkit.Coordinate(center.latitude, center.longitude),
             price,
             {
@@ -732,14 +765,14 @@
             }
           );
 
-          savedAnnotations.push(annotation);
+          savedPriceMarkers.push(priceMarker);
         });
 
         if (savedOverlays.length > 0) {
           map.addOverlays(savedOverlays);
-          map.addAnnotations(savedAnnotations);
           applyMapSettings();
           setStartupZoomedOutRegion();
+          scheduleMarkerPositionUpdate();
         } else {
           setStartupZoomedOutRegion();
         }
@@ -755,12 +788,10 @@
         map.removeOverlays(savedOverlays);
       }
 
-      if (savedAnnotations.length > 0) {
-        map.removeAnnotations(savedAnnotations);
-      }
+      removeDomMarkers(savedPriceMarkers);
 
       savedOverlays = [];
-      savedAnnotations = [];
+      savedPriceMarkers = [];
     }
 
     function handleMapClick(event) {
@@ -815,29 +846,18 @@
       }
 
       currentPoints.forEach(point => {
-        const annotation = new mapkit.Annotation(
-          new mapkit.Coordinate(point.latitude, point.longitude),
-          function() {
-            const element = document.createElement("div");
-            element.className = "corner-annotation";
-            return element;
-          },
-          {
-            anchorOffset: new DOMPoint(0, -9),
-            size: new DOMPoint(18, 18)
-          }
+        currentCornerMarkers.push(
+          createDomCornerMarker(
+            new mapkit.Coordinate(point.latitude, point.longitude)
+          )
         );
-
-        currentCornerAnnotations.push(annotation);
       });
 
       if (currentPreviewOverlays.length > 0) {
         map.addOverlays(currentPreviewOverlays);
       }
 
-      if (currentCornerAnnotations.length > 0) {
-        map.addAnnotations(currentCornerAnnotations);
-      }
+      scheduleMarkerPositionUpdate();
     }
 
     function clearCurrentBorder() {
@@ -851,12 +871,10 @@
         map.removeOverlays(currentPreviewOverlays);
       }
 
-      if (currentCornerAnnotations.length > 0) {
-        map.removeAnnotations(currentCornerAnnotations);
-      }
+      removeDomMarkers(currentCornerMarkers);
 
       currentPreviewOverlays = [];
-      currentCornerAnnotations = [];
+      currentCornerMarkers = [];
     }
 
     function openPostPanel() {
@@ -1382,26 +1400,12 @@
           return;
         }
 
-        if (searchAnnotation) {
-          map.removeAnnotation(searchAnnotation);
-        }
+        removeSearchMarker();
 
-        searchAnnotation = new mapkit.Annotation(
+        searchMarker = createDomSearchMarker(
           place.coordinate,
-          function() {
-            const element = document.createElement("div");
-            element.className = "search-annotation";
-            return element;
-          },
-          {
-            anchorOffset: new DOMPoint(0, -11),
-            size: new DOMPoint(22, 22)
-          }
+          place.name || query
         );
-
-        searchAnnotation.title = place.name || query;
-
-        map.addAnnotation(searchAnnotation);
 
         map.region = new mapkit.CoordinateRegion(
           place.coordinate,
@@ -1409,6 +1413,8 @@
         );
 
         closePanels();
+        scheduleMarkerPositionUpdate();
+        setTimeout(scheduleMarkerPositionUpdate, 350);
       });
     }
 
@@ -1459,6 +1465,154 @@
       });
     }
 
+
+    function createDomPriceMarker(coordinate, price, data) {
+      const displayPrice = price && String(price).trim().length > 0 ? price : "—";
+
+      const element = document.createElement("button");
+      element.className = "price-annotation";
+      element.type = "button";
+      element.textContent = displayPrice;
+      element.setAttribute("aria-label", `Grid listing ${displayPrice}`);
+
+      element.addEventListener("click", event => {
+        event.stopPropagation();
+        openListingDetails(data || {});
+      });
+
+      markerLayer.appendChild(element);
+
+      const marker = {
+        element,
+        coordinate
+      };
+
+      positionDomMarker(marker);
+      return marker;
+    }
+
+    function createDomCornerMarker(coordinate) {
+      const element = document.createElement("div");
+      element.className = "corner-annotation";
+      markerLayer.appendChild(element);
+
+      const marker = {
+        element,
+        coordinate
+      };
+
+      positionDomMarker(marker);
+      return marker;
+    }
+
+    function createDomSearchMarker(coordinate, title) {
+      const element = document.createElement("div");
+      element.className = "search-annotation";
+      element.title = title || "";
+      markerLayer.appendChild(element);
+
+      const marker = {
+        element,
+        coordinate
+      };
+
+      positionDomMarker(marker);
+      return marker;
+    }
+
+    function removeDomMarkers(markers) {
+      markers.forEach(marker => {
+        if (marker && marker.element) {
+          marker.element.remove();
+        }
+      });
+    }
+
+    function removeSearchMarker() {
+      if (searchMarker && searchMarker.element) {
+        searchMarker.element.remove();
+      }
+
+      searchMarker = null;
+    }
+
+    function installMarkerPositionUpdates() {
+      const events = [
+        "region-change-start",
+        "region-change-end",
+        "scroll-start",
+        "scroll-end",
+        "zoom-start",
+        "zoom-end",
+        "rotation-start",
+        "rotation-end"
+      ];
+
+      events.forEach(eventName => {
+        try {
+          map.addEventListener(eventName, scheduleMarkerPositionUpdate);
+        } catch {}
+      });
+
+      window.addEventListener("resize", scheduleMarkerPositionUpdate);
+      window.addEventListener("scroll", scheduleMarkerPositionUpdate, true);
+
+      setInterval(updateAllDomMarkerPositions, 250);
+    }
+
+    function scheduleMarkerPositionUpdate() {
+      requestAnimationFrame(updateAllDomMarkerPositions);
+    }
+
+    function updateAllDomMarkerPositions() {
+      savedPriceMarkers.forEach(positionDomMarker);
+      currentCornerMarkers.forEach(positionDomMarker);
+
+      if (searchMarker) {
+        positionDomMarker(searchMarker);
+      }
+    }
+
+    function positionDomMarker(marker) {
+      if (!marker || !marker.element || !marker.coordinate) {
+        return;
+      }
+
+      const pointOnPage = map.convertCoordinateToPointOnPage(marker.coordinate);
+      const rect = mapElement.getBoundingClientRect();
+
+      const mapLeftOnPage = rect.left + window.scrollX;
+      const mapTopOnPage = rect.top + window.scrollY;
+
+      const x = pointOnPage.x - mapLeftOnPage;
+      const y = pointOnPage.y - mapTopOnPage;
+
+      marker.element.style.left = `${x}px`;
+      marker.element.style.top = `${y}px`;
+
+      const buffer = 80;
+      const visible =
+        x >= -buffer &&
+        y >= -buffer &&
+        x <= rect.width + buffer &&
+        y <= rect.height + buffer;
+
+      marker.element.style.display = visible ? "" : "none";
+    }
+
+    function openListingDetails(data) {
+      const rows = [];
+
+      if (data.price) rows.push(`Price: ${data.price}`);
+      if (data.owner) rows.push(`Owner: ${data.owner}`);
+      if (data.contact) rows.push(`Contact: ${data.contact}`);
+      if (data.address) rows.push(`Address: ${data.address}`);
+      if (data.description) rows.push(`Description: ${data.description}`);
+      if (data.link) rows.push(`Link: ${data.link}`);
+
+      alert(rows.length > 0 ? rows.join("\\n") : "Grid Listing");
+    }
+
     function createPriceAnnotation(coordinate, price, data) {
       const displayPrice = price && String(price).trim().length > 0 ? price : "—";
 
@@ -1473,9 +1627,7 @@
           return element;
         },
         {
-          displayPrice,
-          anchorOffset: new DOMPoint(0, -22),
-          size: new DOMPoint(72, 44)
+          displayPrice
         }
       );
 
@@ -1558,17 +1710,21 @@
       );
 
       map.region = startupRegion;
+      scheduleMarkerPositionUpdate();
 
       requestAnimationFrame(() => {
         map.region = startupRegion;
+        scheduleMarkerPositionUpdate();
       });
 
       setTimeout(() => {
         map.region = startupRegion;
+        scheduleMarkerPositionUpdate();
       }, 300);
 
       setTimeout(() => {
         map.region = startupRegion;
+        scheduleMarkerPositionUpdate();
       }, 900);
     }
 
@@ -1626,50 +1782,6 @@
     }
 
     function polygonCenter(points) {
-      if (!Array.isArray(points) || points.length === 0) {
-        return {
-          latitude: 0,
-          longitude: 0
-        };
-      }
-
-      if (points.length < 3) {
-        return averagePoint(points);
-      }
-
-      let signedArea = 0;
-      let centroidLatitude = 0;
-      let centroidLongitude = 0;
-
-      for (let i = 0; i < points.length; i++) {
-        const current = points[i];
-        const next = points[(i + 1) % points.length];
-
-        const currentLatitude = current[0];
-        const currentLongitude = current[1];
-        const nextLatitude = next[0];
-        const nextLongitude = next[1];
-
-        const cross =
-          currentLongitude * nextLatitude -
-          nextLongitude * currentLatitude;
-
-        signedArea += cross;
-        centroidLatitude += (currentLatitude + nextLatitude) * cross;
-        centroidLongitude += (currentLongitude + nextLongitude) * cross;
-      }
-
-      if (Math.abs(signedArea) < 0.000000000001) {
-        return averagePoint(points);
-      }
-
-      return {
-        latitude: centroidLatitude / (3 * signedArea),
-        longitude: centroidLongitude / (3 * signedArea)
-      };
-    }
-
-    function averagePoint(points) {
       let latitude = 0;
       let longitude = 0;
 
