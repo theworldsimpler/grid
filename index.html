@@ -268,6 +268,54 @@
       margin-top: 10px;
     }
 
+    .search-results {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 18px;
+      max-height: 46vh;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .search-result-button {
+      width: 100%;
+      border: none;
+      border-radius: 14px;
+      background: #F2F2F7;
+      color: #000000;
+      text-align: left;
+      padding: 12px 14px;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .search-result-button:hover {
+      background: #E5E5EA;
+    }
+
+    .search-result-type {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #007AFF;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      margin-bottom: 4px;
+    }
+
+    .search-result-title {
+      font-weight: 700;
+      font-size: 1rem;
+      line-height: 1.2;
+    }
+
+    .search-result-subtitle {
+      color: #555;
+      font-size: 0.95rem;
+      line-height: 1.3;
+      margin-top: 4px;
+    }
+
     .error-note {
       color: #FF3B30;
       font-size: 0.95rem;
@@ -389,12 +437,13 @@
   <div class="panel-backdrop" id="searchPanel">
     <div class="panel">
       <h2>Search</h2>
-      <input id="searchInput" placeholder="Search address or city">
+      <input id="searchInput" placeholder="Owner, Price, Contact, Address, Description, Link...">
       <div class="panel-actions">
         <button class="panel-button" id="runSearchButton">Search</button>
         <button class="panel-button secondary" data-close-panel>Cancel</button>
       </div>
-      <div class="small-note">Search results are shown on the map.</div>
+      <div class="small-note">Search shows real-world places first, then matching Grid listings.</div>
+      <div class="search-results" id="searchResults"></div>
     </div>
   </div>
 
@@ -510,6 +559,7 @@
     const paymentErrorEl = document.getElementById("paymentError");
     const walletInfoEl = document.getElementById("walletInfo");
     const paymentAmountTextEl = document.getElementById("paymentAmountText");
+    const searchResultsEl = document.getElementById("searchResults");
     const cardPaymentButton = document.getElementById("cardPaymentButton");
 
     let container;
@@ -518,6 +568,7 @@
 
     let savedOverlays = [];
     let savedPriceMarkers = [];
+    let savedListingData = [];
     let currentPoints = [];
     let currentPreviewOverlays = [];
     let currentCornerMarkers = [];
@@ -600,7 +651,11 @@
     setDefaultExpiryDate();
     installMarkerPositionUpdates();
 
-    document.getElementById("searchButton").addEventListener("click", () => openPanel("searchPanel"));
+    document.getElementById("searchButton").addEventListener("click", () => {
+      renderSearchResults([]);
+      openPanel("searchPanel");
+      setTimeout(() => document.getElementById("searchInput").focus(), 100);
+    });
     document.getElementById("locateButton").addEventListener("click", locateUser);
     document.getElementById("postButton").addEventListener("click", openPostPanel);
     document.getElementById("clearButton").addEventListener("click", clearCurrentBorder);
@@ -743,6 +798,9 @@
           const address = getValue(fields.address);
           const description = getValue(fields.description);
           const link = getValue(fields.link);
+          const areaText = getValue(fields.areaText);
+          const createdDate = getValue(fields.createdDate);
+          const expiryDate = getValue(fields.expiryDate);
 
           const polygon = new mapkit.PolygonOverlay(coordinates);
 
@@ -756,17 +814,27 @@
 
           const center = polygonCenter(points);
 
+          const listingData = {
+            id: record.recordName || record.recordID?.recordName || makeUUID(),
+            points,
+            center,
+            price,
+            owner,
+            contact,
+            address,
+            description,
+            link,
+            areaText,
+            createdDate,
+            expiryDate
+          };
+
+          savedListingData.push(listingData);
+
           const priceMarker = createDomPriceMarker(
             new mapkit.Coordinate(center.latitude, center.longitude),
             price,
-            {
-              price,
-              owner,
-              contact,
-              address,
-              description,
-              link
-            }
+            listingData
           );
 
           savedPriceMarkers.push(priceMarker);
@@ -796,6 +864,7 @@
 
       savedOverlays = [];
       savedPriceMarkers = [];
+      savedListingData = [];
     }
 
     function handleMapClick(event) {
@@ -1383,8 +1452,15 @@
       const query = document.getElementById("searchInput").value.trim();
 
       if (!query) {
+        renderSearchResults([]);
         return;
       }
+
+      searchResultsEl.innerHTML = "";
+      const loading = document.createElement("div");
+      loading.className = "small-note";
+      loading.textContent = "Searching...";
+      searchResultsEl.appendChild(loading);
 
       const search = new mapkit.Search({
         region: map.region
@@ -1393,33 +1469,296 @@
       search.search(query, function(error, data) {
         if (error) {
           console.error(error);
-          showStatus("Search failed.");
+          renderSearchResults([
+            {
+              type: "message",
+              title: "Search failed.",
+              subtitle: "Try another search."
+            }
+          ]);
           return;
         }
 
-        const place = data.places && data.places[0];
+        const places = uniquePlaces(data.places || []);
+        const listingMatches = searchListings(query, places);
 
-        if (!place || !place.coordinate) {
-          showStatus("No search result found.");
-          return;
+        const results = [
+          ...places.map(place => ({
+            type: "address",
+            title: place.name || "Address",
+            subtitle: place.formattedAddress || place.displayLines?.join(", ") || "",
+            coordinate: place.coordinate
+          })),
+          ...listingMatches.map(listing => ({
+            type: "listing",
+            title: listing.price || listing.address || listing.owner || "Grid Listing",
+            subtitle: listingSubtitle(listing),
+            listing
+          }))
+        ];
+
+        renderSearchResults(results);
+
+        if (results.length === 0) {
+          showStatus("No search results found.");
         }
-
-        removeSearchMarker();
-
-        searchMarker = createDomSearchMarker(
-          place.coordinate,
-          place.name || query
-        );
-
-        map.region = new mapkit.CoordinateRegion(
-          place.coordinate,
-          new mapkit.CoordinateSpan(0.05, 0.05)
-        );
-
-        closePanels();
-        scheduleMarkerPositionUpdate();
-        setTimeout(scheduleMarkerPositionUpdate, 350);
       });
+    }
+
+    function renderSearchResults(results) {
+      searchResultsEl.innerHTML = "";
+
+      if (!results || results.length === 0) {
+        const note = document.createElement("div");
+        note.className = "small-note";
+        note.textContent = "Enter a search to see places and Grid listings.";
+        searchResultsEl.appendChild(note);
+        return;
+      }
+
+      results.forEach(result => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "search-result-button";
+
+        const type = document.createElement("div");
+        type.className = "search-result-type";
+        type.textContent = result.type === "listing" ? "Grid Listing" : result.type === "address" ? "Place" : "";
+
+        const title = document.createElement("div");
+        title.className = "search-result-title";
+        title.textContent = result.title || "—";
+
+        const subtitle = document.createElement("div");
+        subtitle.className = "search-result-subtitle";
+        subtitle.textContent = result.subtitle || "";
+
+        button.appendChild(type);
+        button.appendChild(title);
+
+        if (result.subtitle) {
+          button.appendChild(subtitle);
+        }
+
+        if (result.type === "address") {
+          button.addEventListener("click", () => selectAddressResult(result));
+        } else if (result.type === "listing") {
+          button.addEventListener("click", () => selectListingResult(result.listing));
+        } else {
+          button.disabled = true;
+        }
+
+        searchResultsEl.appendChild(button);
+      });
+    }
+
+    function uniquePlaces(places) {
+      const seen = new Set();
+      const unique = [];
+
+      places.forEach(place => {
+        if (!place || !place.coordinate) {
+          return;
+        }
+
+        const latitude = Math.round(place.coordinate.latitude * 100000) / 100000;
+        const longitude = Math.round(place.coordinate.longitude * 100000) / 100000;
+        const key = `${place.name || ""}|${place.formattedAddress || ""}|${latitude}|${longitude}`;
+
+        if (seen.has(key)) {
+          return;
+        }
+
+        seen.add(key);
+        unique.push(place);
+      });
+
+      return unique.slice(0, 12);
+    }
+
+    function searchListings(query, places) {
+      const trimmed = query.trim().toLowerCase();
+
+      if (!trimmed) {
+        return [];
+      }
+
+      const directMatches = savedListingData.filter(listing => {
+        return listingSearchText(listing).includes(trimmed);
+      });
+
+      const addressCoordinates = places
+        .filter(place => place.coordinate)
+        .map(place => ({
+          latitude: place.coordinate.latitude,
+          longitude: place.coordinate.longitude
+        }));
+
+      const addressMatches = savedListingData.filter(listing => {
+        return addressCoordinates.some(coordinate => {
+          return isPointInPolygon(coordinate, listing.points);
+        });
+      });
+
+      const seen = new Set();
+      const results = [];
+
+      [...directMatches, ...addressMatches].forEach(listing => {
+        const key = listing.id || `${listing.center.latitude},${listing.center.longitude}`;
+
+        if (seen.has(key)) {
+          return;
+        }
+
+        seen.add(key);
+        results.push(listing);
+      });
+
+      return results;
+    }
+
+    function listingSearchText(listing) {
+      return [
+        listing.owner,
+        listing.price,
+        listing.contact,
+        listing.address,
+        listing.description,
+        listing.link,
+        listing.areaText,
+        formatAreaTextFromPointPairs(listing.points),
+        formatSearchDate(listing.createdDate),
+        formatSearchDate(listing.expiryDate)
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+    }
+
+    function listingSubtitle(listing) {
+      const values = [
+        listing.address,
+        listing.owner,
+        listing.contact,
+        listing.areaText || formatAreaTextFromPointPairs(listing.points),
+        listing.description
+      ].filter(value => value && String(value).trim().length > 0);
+
+      return values.slice(0, 3).join(" • ");
+    }
+
+    function selectAddressResult(result) {
+      removeSearchMarker();
+
+      searchMarker = createDomSearchMarker(
+        result.coordinate,
+        result.title
+      );
+
+      map.region = new mapkit.CoordinateRegion(
+        result.coordinate,
+        new mapkit.CoordinateSpan(0.05, 0.05)
+      );
+
+      closePanels();
+      scheduleMarkerPositionUpdate();
+      setTimeout(scheduleMarkerPositionUpdate, 350);
+    }
+
+    function selectListingResult(listing) {
+      if (!listing || !Array.isArray(listing.points) || listing.points.length < 3) {
+        return;
+      }
+
+      const region = regionForPointPairs(listing.points);
+
+      map.region = region;
+
+      closePanels();
+      scheduleMarkerPositionUpdate();
+      setTimeout(scheduleMarkerPositionUpdate, 350);
+      openListingDetails(listing);
+    }
+
+    function isPointInPolygon(point, polygon) {
+      if (!point || !Array.isArray(polygon) || polygon.length < 3) {
+        return false;
+      }
+
+      const x = point.longitude;
+      const y = point.latitude;
+      let inside = false;
+
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i][1];
+        const yi = polygon[i][0];
+        const xj = polygon[j][1];
+        const yj = polygon[j][0];
+
+        const intersects =
+          (yi > y) !== (yj > y) &&
+          x < ((xj - xi) * (y - yi)) / ((yj - yi) || 0.000000000001) + xi;
+
+        if (intersects) {
+          inside = !inside;
+        }
+      }
+
+      return inside;
+    }
+
+    function regionForPointPairs(points) {
+      let minLatitude = Infinity;
+      let maxLatitude = -Infinity;
+      let minLongitude = Infinity;
+      let maxLongitude = -Infinity;
+
+      points.forEach(point => {
+        minLatitude = Math.min(minLatitude, point[0]);
+        maxLatitude = Math.max(maxLatitude, point[0]);
+        minLongitude = Math.min(minLongitude, point[1]);
+        maxLongitude = Math.max(maxLongitude, point[1]);
+      });
+
+      const center = new mapkit.Coordinate(
+        (minLatitude + maxLatitude) / 2,
+        (minLongitude + maxLongitude) / 2
+      );
+
+      const latitudeDelta = Math.max((maxLatitude - minLatitude) * 1.8, 0.01);
+      const longitudeDelta = Math.max((maxLongitude - minLongitude) * 1.8, 0.01);
+
+      return new mapkit.CoordinateRegion(
+        center,
+        new mapkit.CoordinateSpan(latitudeDelta, longitudeDelta)
+      );
+    }
+
+    function formatAreaTextFromPointPairs(points) {
+      const mapPoints = points.map(point => ({
+        latitude: point[0],
+        longitude: point[1]
+      }));
+
+      const squareKilometers = calculatePolygonAreaMeters2(mapPoints) / 1000000;
+
+      return squareKilometers.toLocaleString("en-US", {
+        maximumFractionDigits: 2
+      }) + " km²";
+    }
+
+    function formatSearchDate(value) {
+      if (!value) {
+        return "";
+      }
+
+      const date = typeof value === "number" ? new Date(value) : new Date(value);
+
+      if (Number.isNaN(date.getTime())) {
+        return "";
+      }
+
+      return date.toISOString();
     }
 
     function locateUser() {
