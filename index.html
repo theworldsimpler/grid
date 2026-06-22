@@ -33,6 +33,11 @@
       margin: 0 0 70px 0;
     }
 
+    .map-section {
+      max-width: none;
+      width: calc(100vw - 80px);
+    }
+
     h1 {
       font-size: 2rem;
       font-weight: 700;
@@ -128,6 +133,10 @@
         padding: 24px;
       }
 
+      .map-section {
+        width: calc(100vw - 48px);
+      }
+
       #map {
         height: 70vh;
         min-height: 520px;
@@ -143,7 +152,7 @@
     <a class="download-button" href="https://apps.apple.com/app/id6773366221">App Store</a>
   </div>
 
-  <div class="section">
+  <div class="section map-section">
     <div id="status" hidden></div>
     <div id="map"></div>
   </div>
