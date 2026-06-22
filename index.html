@@ -75,6 +75,54 @@
       background: #eeeeee;
     }
 
+    .price-annotation {
+      min-width: 72px;
+      min-height: 44px;
+      padding: 4px 8px;
+      border: none;
+      border-radius: 999px;
+      background: #007AFF;
+      color: #FFFFFF;
+      font-family: 'Inter Display', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+      text-align: center;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: none;
+      transform: translate(-50%, -50%);
+    }
+
+    .price-annotation:hover {
+      background: #006EE6;
+    }
+
+    .listing-callout {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      min-width: 220px;
+      max-width: 300px;
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .listing-callout-title {
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .listing-callout-row {
+      margin: 4px 0;
+    }
+
+    .listing-callout a {
+      color: #007AFF;
+      text-decoration: none;
+    }
+
     @media (max-width: 700px) {
       body {
         padding: 24px;
@@ -131,7 +179,6 @@
     };
 
     const MAPKIT_TOKEN = MAPKIT_TOKENS[window.location.hostname];
-
     const statusEl = document.getElementById("status");
 
     if (!MAPKIT_TOKEN) {
@@ -173,11 +220,7 @@
     map.showsScale = mapkit.FeatureVisibility.Visible;
 
     applyClosestWeb3DSettings();
-
-    map.region = new mapkit.CoordinateRegion(
-      new mapkit.Coordinate(43.6532, -79.3832),
-      new mapkit.CoordinateSpan(1.5, 1.5)
-    );
+    setStartupZoomedOutRegion();
 
     async function loadBorders() {
       try {
@@ -236,24 +279,18 @@
 
           const center = polygonCenter(points);
 
-          const annotation = new mapkit.MarkerAnnotation(
+          const annotation = createPriceAnnotation(
             new mapkit.Coordinate(center.latitude, center.longitude),
+            price,
             {
-              title: price || "Grid Listing",
-              subtitle: address || description || owner || contact || "Land listing",
-              color: "#007AFF",
-              glyphText: "▣"
+              price,
+              owner,
+              contact,
+              address,
+              description,
+              link
             }
           );
-
-          annotation.data = {
-            price,
-            owner,
-            contact,
-            address,
-            description,
-            link
-          };
 
           annotations.push(annotation);
         });
@@ -262,22 +299,118 @@
           map.addOverlays(overlays);
           map.addAnnotations(annotations);
 
-          map.showItems([...overlays, ...annotations], {
-            padding: new mapkit.Padding(60, 60, 60, 60)
-          });
-
           map.mapType = hybridMapType;
           applyClosestWeb3DSettings();
+          setStartupZoomedOutRegion();
 
           statusEl.textContent = `Showing ${overlays.length} Grid listing${overlays.length === 1 ? "" : "s"}.`;
         } else {
           statusEl.textContent = "No Grid listings found yet.";
+          setStartupZoomedOutRegion();
         }
 
       } catch (error) {
         console.error(error);
         statusEl.textContent = "Could not load Grid listings.";
+        setStartupZoomedOutRegion();
       }
+    }
+
+    function createPriceAnnotation(coordinate, price, data) {
+      const displayPrice = price && String(price).trim().length > 0 ? price : "—";
+
+      const annotation = new mapkit.Annotation(
+        coordinate,
+        function(_, options) {
+          const element = document.createElement("button");
+          element.className = "price-annotation";
+          element.type = "button";
+          element.textContent = options.displayPrice || "—";
+          element.setAttribute("aria-label", `Grid listing ${options.displayPrice || "—"}`);
+          return element;
+        },
+        {
+          displayPrice
+        }
+      );
+
+      annotation.title = displayPrice;
+      annotation.subtitle =
+        data.address ||
+        data.description ||
+        data.owner ||
+        data.contact ||
+        "Grid Listing";
+
+      annotation.data = data;
+      annotation.callout = listingCalloutDelegate;
+
+      return annotation;
+    }
+
+    const listingCalloutDelegate = {
+      calloutContentForAnnotation: function(annotation) {
+        const data = annotation.data || {};
+        const container = document.createElement("div");
+        container.className = "listing-callout";
+
+        const title = document.createElement("div");
+        title.className = "listing-callout-title";
+        title.textContent = "Grid Listing";
+        container.appendChild(title);
+
+        addCalloutRow(container, "Price", data.price);
+        addCalloutRow(container, "Owner", data.owner);
+        addCalloutRow(container, "Contact", data.contact);
+        addCalloutRow(container, "Address", data.address);
+        addCalloutRow(container, "Description", data.description);
+
+        if (data.link) {
+          const row = document.createElement("div");
+          row.className = "listing-callout-row";
+
+          const strong = document.createElement("strong");
+          strong.textContent = "Link: ";
+
+          const anchor = document.createElement("a");
+          anchor.href = data.link;
+          anchor.target = "_blank";
+          anchor.rel = "noopener";
+          anchor.textContent = "Open";
+
+          row.appendChild(strong);
+          row.appendChild(anchor);
+          container.appendChild(row);
+        }
+
+        return container;
+      }
+    };
+
+    function addCalloutRow(container, label, value) {
+      if (!value) {
+        return;
+      }
+
+      const row = document.createElement("div");
+      row.className = "listing-callout-row";
+
+      const strong = document.createElement("strong");
+      strong.textContent = `${label}: `;
+
+      const span = document.createElement("span");
+      span.textContent = value;
+
+      row.appendChild(strong);
+      row.appendChild(span);
+      container.appendChild(row);
+    }
+
+    function setStartupZoomedOutRegion() {
+      map.region = new mapkit.CoordinateRegion(
+        new mapkit.Coordinate(0, 0),
+        new mapkit.CoordinateSpan(90, 180)
+      );
     }
 
     function applyClosestWeb3DSettings() {
