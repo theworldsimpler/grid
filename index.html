@@ -1557,11 +1557,76 @@
       window.addEventListener("resize", scheduleMarkerPositionUpdate);
       window.addEventListener("scroll", scheduleMarkerPositionUpdate, true);
 
-      setInterval(updateAllDomMarkerPositions, 250);
+      mapElement.addEventListener("pointerdown", startContinuousMarkerTracking);
+      mapElement.addEventListener("pointermove", scheduleMarkerPositionUpdate);
+      mapElement.addEventListener("pointerup", stopContinuousMarkerTrackingSoon);
+      mapElement.addEventListener("pointercancel", stopContinuousMarkerTrackingSoon);
+      mapElement.addEventListener("touchstart", startContinuousMarkerTracking, { passive: true });
+      mapElement.addEventListener("touchmove", scheduleMarkerPositionUpdate, { passive: true });
+      mapElement.addEventListener("touchend", stopContinuousMarkerTrackingSoon, { passive: true });
+      mapElement.addEventListener("wheel", () => {
+        startContinuousMarkerTracking();
+        stopContinuousMarkerTrackingSoon();
+      }, { passive: true });
+
+      startAlwaysOnMarkerTracking();
     }
 
+    let markerFrameRequested = false;
+    let markerTrackingActive = false;
+    let markerTrackingStopTimer = null;
+
     function scheduleMarkerPositionUpdate() {
-      requestAnimationFrame(updateAllDomMarkerPositions);
+      if (markerFrameRequested) {
+        return;
+      }
+
+      markerFrameRequested = true;
+
+      requestAnimationFrame(() => {
+        markerFrameRequested = false;
+        updateAllDomMarkerPositions();
+      });
+    }
+
+    function startContinuousMarkerTracking() {
+      markerTrackingActive = true;
+
+      if (markerTrackingStopTimer) {
+        clearTimeout(markerTrackingStopTimer);
+        markerTrackingStopTimer = null;
+      }
+
+      continuousMarkerTrackingFrame();
+    }
+
+    function stopContinuousMarkerTrackingSoon() {
+      if (markerTrackingStopTimer) {
+        clearTimeout(markerTrackingStopTimer);
+      }
+
+      markerTrackingStopTimer = setTimeout(() => {
+        markerTrackingActive = false;
+        updateAllDomMarkerPositions();
+      }, 800);
+    }
+
+    function continuousMarkerTrackingFrame() {
+      if (!markerTrackingActive) {
+        return;
+      }
+
+      updateAllDomMarkerPositions();
+      requestAnimationFrame(continuousMarkerTrackingFrame);
+    }
+
+    function startAlwaysOnMarkerTracking() {
+      function frame() {
+        updateAllDomMarkerPositions();
+        requestAnimationFrame(frame);
+      }
+
+      requestAnimationFrame(frame);
     }
 
     function updateAllDomMarkerPositions() {
