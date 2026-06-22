@@ -144,7 +144,7 @@
   </div>
 
   <div class="section">
-  <div id="status" hidden></div>
+  <div id="status"></div>
   <div id="map"></div>
 </div>
 
@@ -308,10 +308,10 @@
         }
 
       } catch (error) {
-        console.error(error);
-        statusEl.textContent = "Could not load Grid listings.";
-        setStartupZoomedOutRegion();
-      }
+  console.error(error);
+  statusEl.textContent = "Could not load Grid listings: " + (error.message || error);
+  setStartupZoomedOutRegion();
+}
     }
 
     function createPriceAnnotation(coordinate, price, data) {
