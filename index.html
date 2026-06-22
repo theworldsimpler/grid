@@ -233,7 +233,7 @@
     map.showsMapTypeControl = true;
     map.showsScale = mapkit.FeatureVisibility.Visible;
 
-    applyClosestWeb3DSettings();
+    applyMapSettings();
     setStartupZoomedOutRegion();
 
     async function loadBorders() {
@@ -313,8 +313,7 @@
           map.addOverlays(overlays);
           map.addAnnotations(annotations);
 
-          map.mapType = hybridMapType;
-          applyClosestWeb3DSettings();
+          applyMapSettings();
           setStartupZoomedOutRegion();
 
           statusEl.textContent = `Showing ${overlays.length} Grid listing${overlays.length === 1 ? "" : "s"}.`;
@@ -422,13 +421,27 @@
     }
 
     function setStartupZoomedOutRegion() {
-      map.region = new mapkit.CoordinateRegion(
+      const startupRegion = new mapkit.CoordinateRegion(
         new mapkit.Coordinate(0, 0),
         new mapkit.CoordinateSpan(90, 180)
       );
+
+      map.region = startupRegion;
+
+      requestAnimationFrame(() => {
+        map.region = startupRegion;
+      });
+
+      setTimeout(() => {
+        map.region = startupRegion;
+      }, 300);
+
+      setTimeout(() => {
+        map.region = startupRegion;
+      }, 900);
     }
 
-    function applyClosestWeb3DSettings() {
+    function applyMapSettings() {
       map.mapType = hybridMapType;
 
       if ("showsBuildings" in map) {
@@ -441,14 +454,6 @@
 
       if ("isPitchEnabled" in map) {
         map.isPitchEnabled = true;
-      }
-
-      if ("pitch" in map) {
-        map.pitch = 55;
-      }
-
-      if ("cameraDistance" in map) {
-        map.cameraDistance = 12000;
       }
     }
 
