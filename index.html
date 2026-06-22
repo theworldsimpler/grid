@@ -821,6 +821,10 @@
             const element = document.createElement("div");
             element.className = "corner-annotation";
             return element;
+          },
+          {
+            anchorOffset: new DOMPoint(0, -9),
+            size: new DOMPoint(18, 18)
           }
         );
 
@@ -1388,6 +1392,10 @@
             const element = document.createElement("div");
             element.className = "search-annotation";
             return element;
+          },
+          {
+            anchorOffset: new DOMPoint(0, -11),
+            size: new DOMPoint(22, 22)
           }
         );
 
@@ -1465,7 +1473,9 @@
           return element;
         },
         {
-          displayPrice
+          displayPrice,
+          anchorOffset: new DOMPoint(0, -22),
+          size: new DOMPoint(72, 44)
         }
       );
 
@@ -1627,7 +1637,7 @@
         return averagePoint(points);
       }
 
-      let doubleArea = 0;
+      let signedArea = 0;
       let centroidLatitude = 0;
       let centroidLongitude = 0;
 
@@ -1644,18 +1654,18 @@
           currentLongitude * nextLatitude -
           nextLongitude * currentLatitude;
 
-        doubleArea += cross;
+        signedArea += cross;
         centroidLatitude += (currentLatitude + nextLatitude) * cross;
         centroidLongitude += (currentLongitude + nextLongitude) * cross;
       }
 
-      if (Math.abs(doubleArea) < 0.000000000001) {
+      if (Math.abs(signedArea) < 0.000000000001) {
         return averagePoint(points);
       }
 
       return {
-        latitude: centroidLatitude / (3 * doubleArea),
-        longitude: centroidLongitude / (3 * doubleArea)
+        latitude: centroidLatitude / (3 * signedArea),
+        longitude: centroidLongitude / (3 * signedArea)
       };
     }
 
