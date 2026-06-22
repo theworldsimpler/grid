@@ -29,7 +29,7 @@
     }
 
     .section {
-      max-width: 900px;
+      max-width: 1100px;
       margin: 0 0 70px 0;
     }
 
@@ -67,11 +67,23 @@
 
     #map {
       width: 100%;
-      height: 600px;
+      height: 75vh;
+      min-height: 650px;
       border-radius: 18px;
       overflow: hidden;
       border: 1px solid #ddd;
       background: #eeeeee;
+    }
+
+    @media (max-width: 700px) {
+      body {
+        padding: 24px;
+      }
+
+      #map {
+        height: 70vh;
+        min-height: 520px;
+      }
     }
   </style>
 </head>
@@ -160,25 +172,7 @@
     map.showsMapTypeControl = true;
     map.showsScale = mapkit.FeatureVisibility.Visible;
 
-    if ("isRotationEnabled" in map) {
-      map.isRotationEnabled = true;
-    }
-
-    if ("isPitchEnabled" in map) {
-      map.isPitchEnabled = true;
-    }
-
-    if ("showsBuildings" in map) {
-      map.showsBuildings = true;
-    }
-
-    if ("pitch" in map) {
-      map.pitch = 55;
-    }
-
-    if ("cameraDistance" in map) {
-      map.cameraDistance = 12000;
-    }
+    applyClosestWeb3DSettings();
 
     map.region = new mapkit.CoordinateRegion(
       new mapkit.Coordinate(43.6532, -79.3832),
@@ -273,26 +267,7 @@
           });
 
           map.mapType = hybridMapType;
-
-          if ("showsBuildings" in map) {
-            map.showsBuildings = true;
-          }
-
-          if ("isRotationEnabled" in map) {
-            map.isRotationEnabled = true;
-          }
-
-          if ("isPitchEnabled" in map) {
-            map.isPitchEnabled = true;
-          }
-
-          if ("pitch" in map) {
-            map.pitch = 55;
-          }
-
-          if ("cameraDistance" in map) {
-            map.cameraDistance = 12000;
-          }
+          applyClosestWeb3DSettings();
 
           statusEl.textContent = `Showing ${overlays.length} Grid listing${overlays.length === 1 ? "" : "s"}.`;
         } else {
@@ -302,6 +277,30 @@
       } catch (error) {
         console.error(error);
         statusEl.textContent = "Could not load Grid listings.";
+      }
+    }
+
+    function applyClosestWeb3DSettings() {
+      map.mapType = hybridMapType;
+
+      if ("showsBuildings" in map) {
+        map.showsBuildings = true;
+      }
+
+      if ("isRotationEnabled" in map) {
+        map.isRotationEnabled = true;
+      }
+
+      if ("isPitchEnabled" in map) {
+        map.isPitchEnabled = true;
+      }
+
+      if ("pitch" in map) {
+        map.pitch = 55;
+      }
+
+      if ("cameraDistance" in map) {
+        map.cameraDistance = 12000;
       }
     }
 
