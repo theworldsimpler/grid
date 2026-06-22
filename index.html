@@ -9,8 +9,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter+Display:wght@400;600;700&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-
   <style>
     * {
       box-sizing: border-box;
@@ -74,15 +72,6 @@
       overflow: hidden;
       border: 1px solid #ddd;
     }
-
-    .popup-title {
-      font-weight: 700;
-      margin-bottom: 6px;
-    }
-
-    .popup-row {
-      margin: 3px 0;
-    }
   </style>
 </head>
 
@@ -116,23 +105,21 @@
   </div>
 
   <script src="https://cdn.apple-cloudkit.com/ck/2/cloudkit.js"></script>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.js"></script>
 
   <script>
     const CLOUDKIT_CONTAINER_ID = "iCloud.Grid";
     const CLOUDKIT_API_TOKEN = "e73d68b176aa0efd24dde0748e2619b584e9e9a05ed0d9f6313c4d662b345e1e";
     const CLOUDKIT_ENVIRONMENT = "production";
 
+    const MAPKIT_TOKENS = {
+      "theworldsimpler.com": "eyJraWQiOiJYUzdER0dMNllZIiwidHlwIjoiSldUIiwiYWxnIjoiRVMyNTYifQ.eyJpc3MiOiI3NDk2UThGQUgzIiwiaWF0IjoxNzgyMTQ2Mjg5LCJvcmlnaW4iOiJ0aGV3b3JsZHNpbXBsZXIuY29tIiwic2NvcGUiOiJtYXBraXRfanMifQ.pOyZBMqBu5QVFpY4ZkWIiB0oTAnVzSeu0S8ZHINMiqqKeb7PmI99tN5Sm5SyDWPOar4jYAYwh_FEvmb-WKaFkg",
+      "theworldsimpler.github.io": "eyJraWQiOiJaNVg5TUQzTUhTIiwidHlwIjoiSldUIiwiYWxnIjoiRVMyNTYifQ.eyJpc3MiOiI3NDk2UThGQUgzIiwiaWF0IjoxNzgyMTQ2Mjg5LCJvcmlnaW4iOiJ0aGV3b3JsZHNpbXBsZXIuZ2l0aHViLmlvIiwic2NvcGUiOiJtYXBraXRfanMifQ.RzK7_nMRgzcdZSEfLcWOz-B6iG0iFQXzYKyia1bCmKxcw6j-pJxtRxXQsvyJadbr4KL9Oxxq-NsghZMi8CYsLQ"
+    };
+
+    const MAPKIT_TOKEN = MAPKIT_TOKENS[window.location.hostname];
+
     const statusEl = document.getElementById("status");
-
-    const map = L.map("map").setView([43.6532, -79.3832], 8);
-
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 20,
-      attribution: "&copy; OpenStreetMap contributors"
-    }).addTo(map);
-
-    const polygonLayer = L.featureGroup().addTo(map);
 
     CloudKit.configure({
       containers: [
@@ -146,6 +133,24 @@
         }
       ]
     });
+
+    mapkit.init({
+      authorizationCallback: function(done) {
+        done(MAPKIT_TOKEN);
+      }
+    });
+
+    const map = new mapkit.Map("map");
+
+    map.mapType = mapkit.Map.MapTypes.Hybrid;
+    map.showsCompass = mapkit.FeatureVisibility.Visible;
+    map.showsZoomControl = true;
+    map.showsMapTypeControl = true;
+
+    map.region = new mapkit.CoordinateRegion(
+      new mapkit.Coordinate(43.6532, -79.3832),
+      new mapkit.CoordinateSpan(1.5, 1.5)
+    );
 
     async function loadBorders() {
       try {
@@ -169,9 +174,9 @@
         });
 
         const records = response.records || [];
-        polygonLayer.clearLayers();
 
-        let renderedCount = 0;
+        const overlays = [];
+        const annotations = [];
 
         records.forEach(record => {
           const fields = record.fields || {};
@@ -181,6 +186,10 @@
             return;
           }
 
+          const coordinates = points.map(point => {
+            return new mapkit.Coordinate(point[0], point[1]);
+          });
+
           const price = getValue(fields.price);
           const owner = getValue(fields.owner);
           const contact = getValue(fields.contact);
@@ -188,34 +197,50 @@
           const description = getValue(fields.description);
           const link = getValue(fields.link);
 
-          const polygon = L.polygon(points, {
-            weight: 3,
-            opacity: 0.9,
-            fillOpacity: 0.25
-          }).addTo(polygonLayer);
-
-          polygon.bindPopup(`
-            <div class="popup-title">Grid Listing</div>
-            ${price ? `<div class="popup-row"><strong>Price:</strong> ${escapeHTML(price)}</div>` : ""}
-            ${owner ? `<div class="popup-row"><strong>Owner:</strong> ${escapeHTML(owner)}</div>` : ""}
-            ${contact ? `<div class="popup-row"><strong>Contact:</strong> ${escapeHTML(contact)}</div>` : ""}
-            ${address ? `<div class="popup-row"><strong>Address:</strong> ${escapeHTML(address)}</div>` : ""}
-            ${description ? `<div class="popup-row"><strong>Description:</strong> ${escapeHTML(description)}</div>` : ""}
-            ${link ? `<div class="popup-row"><strong>Link:</strong> <a href="${escapeHTML(link)}" target="_blank" rel="noopener">Open</a></div>` : ""}
-          `);
-
-          renderedCount += 1;
-        });
-
-        if (renderedCount > 0) {
-          map.fitBounds(polygonLayer.getBounds(), {
-            padding: [30, 30]
+          const polygon = new mapkit.PolygonOverlay(coordinates);
+          polygon.style = new mapkit.Style({
+            strokeColor: "#007AFF",
+            lineWidth: 3,
+            fillColor: "rgba(0, 122, 255, 0.25)"
           });
 
-          statusEl.textContent = `Showing ${renderedCount} Grid listing${renderedCount === 1 ? "" : "s"}.`;
+          overlays.push(polygon);
+
+          const center = polygonCenter(points);
+
+          const annotation = new mapkit.MarkerAnnotation(
+            new mapkit.Coordinate(center.latitude, center.longitude),
+            {
+              title: price || "Grid Listing",
+              subtitle: address || description || owner || contact || ""
+            }
+          );
+
+          annotation.data = {
+            price,
+            owner,
+            contact,
+            address,
+            description,
+            link
+          };
+
+          annotations.push(annotation);
+        });
+
+        if (overlays.length > 0) {
+          map.addOverlays(overlays);
+          map.addAnnotations(annotations);
+
+          map.showItems([...overlays, ...annotations], {
+            padding: new mapkit.Padding(60, 60, 60, 60)
+          });
+
+          statusEl.textContent = `Showing ${overlays.length} Grid listing${overlays.length === 1 ? "" : "s"}.`;
         } else {
           statusEl.textContent = "No Grid listings found yet.";
         }
+
       } catch (error) {
         console.error(error);
         statusEl.textContent = "Could not load Grid listings.";
@@ -259,13 +284,19 @@
         .filter(Boolean);
     }
 
-    function escapeHTML(value) {
-      return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
+    function polygonCenter(points) {
+      let latitude = 0;
+      let longitude = 0;
+
+      points.forEach(point => {
+        latitude += point[0];
+        longitude += point[1];
+      });
+
+      return {
+        latitude: latitude / points.length,
+        longitude: longitude / points.length
+      };
     }
 
     loadBorders();
