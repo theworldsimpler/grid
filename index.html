@@ -130,7 +130,6 @@
       justify-content: center;
       cursor: pointer;
       box-shadow: none;
-      transform: translate(-50%, -50%);
     }
 
     .price-annotation:hover {
@@ -143,7 +142,6 @@
       border-radius: 50%;
       background: #FFFFFF;
       border: 2px solid #007AFF;
-      transform: translate(-50%, -50%);
     }
 
     .search-annotation {
@@ -153,7 +151,6 @@
       background: #FF3B30;
       border: 3px solid #FFFFFF;
       box-shadow: 0 2px 8px rgba(0,0,0,0.35);
-      transform: translate(-50%, -50%);
     }
 
     .listing-callout {
@@ -1619,6 +1616,50 @@
     }
 
     function polygonCenter(points) {
+      if (!Array.isArray(points) || points.length === 0) {
+        return {
+          latitude: 0,
+          longitude: 0
+        };
+      }
+
+      if (points.length < 3) {
+        return averagePoint(points);
+      }
+
+      let doubleArea = 0;
+      let centroidLatitude = 0;
+      let centroidLongitude = 0;
+
+      for (let i = 0; i < points.length; i++) {
+        const current = points[i];
+        const next = points[(i + 1) % points.length];
+
+        const currentLatitude = current[0];
+        const currentLongitude = current[1];
+        const nextLatitude = next[0];
+        const nextLongitude = next[1];
+
+        const cross =
+          currentLongitude * nextLatitude -
+          nextLongitude * currentLatitude;
+
+        doubleArea += cross;
+        centroidLatitude += (currentLatitude + nextLatitude) * cross;
+        centroidLongitude += (currentLongitude + nextLongitude) * cross;
+      }
+
+      if (Math.abs(doubleArea) < 0.000000000001) {
+        return averagePoint(points);
+      }
+
+      return {
+        latitude: centroidLatitude / (3 * doubleArea),
+        longitude: centroidLongitude / (3 * doubleArea)
+      };
+    }
+
+    function averagePoint(points) {
       let latitude = 0;
       let longitude = 0;
 
