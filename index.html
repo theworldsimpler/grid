@@ -71,6 +71,7 @@
       border-radius: 18px;
       overflow: hidden;
       border: 1px solid #ddd;
+      background: #eeeeee;
     }
   </style>
 </head>
@@ -121,6 +122,10 @@
 
     const statusEl = document.getElementById("status");
 
+    if (!MAPKIT_TOKEN) {
+      statusEl.textContent = "Missing MapKit token for this domain.";
+    }
+
     CloudKit.configure({
       containers: [
         {
@@ -140,12 +145,40 @@
       }
     });
 
-    const map = new mapkit.Map("map");
+    const hybridMapType =
+      mapkit.Map?.MapTypes?.Hybrid ||
+      mapkit.MapType?.Hybrid ||
+      "hybrid";
 
-    map.mapType = mapkit.Map.MapTypes.Hybrid;
+    const map = new mapkit.Map("map", {
+      isRotationEnabled: true
+    });
+
+    map.mapType = hybridMapType;
     map.showsCompass = mapkit.FeatureVisibility.Visible;
     map.showsZoomControl = true;
     map.showsMapTypeControl = true;
+    map.showsScale = mapkit.FeatureVisibility.Visible;
+
+    if ("isRotationEnabled" in map) {
+      map.isRotationEnabled = true;
+    }
+
+    if ("isPitchEnabled" in map) {
+      map.isPitchEnabled = true;
+    }
+
+    if ("showsBuildings" in map) {
+      map.showsBuildings = true;
+    }
+
+    if ("pitch" in map) {
+      map.pitch = 55;
+    }
+
+    if ("cameraDistance" in map) {
+      map.cameraDistance = 12000;
+    }
 
     map.region = new mapkit.CoordinateRegion(
       new mapkit.Coordinate(43.6532, -79.3832),
@@ -198,6 +231,7 @@
           const link = getValue(fields.link);
 
           const polygon = new mapkit.PolygonOverlay(coordinates);
+
           polygon.style = new mapkit.Style({
             strokeColor: "#007AFF",
             lineWidth: 3,
@@ -212,7 +246,9 @@
             new mapkit.Coordinate(center.latitude, center.longitude),
             {
               title: price || "Grid Listing",
-              subtitle: address || description || owner || contact || ""
+              subtitle: address || description || owner || contact || "Land listing",
+              color: "#007AFF",
+              glyphText: "▣"
             }
           );
 
@@ -235,6 +271,28 @@
           map.showItems([...overlays, ...annotations], {
             padding: new mapkit.Padding(60, 60, 60, 60)
           });
+
+          map.mapType = hybridMapType;
+
+          if ("showsBuildings" in map) {
+            map.showsBuildings = true;
+          }
+
+          if ("isRotationEnabled" in map) {
+            map.isRotationEnabled = true;
+          }
+
+          if ("isPitchEnabled" in map) {
+            map.isPitchEnabled = true;
+          }
+
+          if ("pitch" in map) {
+            map.pitch = 55;
+          }
+
+          if ("cameraDistance" in map) {
+            map.cameraDistance = 12000;
+          }
 
           statusEl.textContent = `Showing ${overlays.length} Grid listing${overlays.length === 1 ? "" : "s"}.`;
         } else {
