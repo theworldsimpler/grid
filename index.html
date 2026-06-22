@@ -51,17 +51,43 @@
       margin: 0 0 18px 0;
     }
 
-    .download-button {
-      display: inline-block;
+    .download-button,
+    .toolbar-button,
+    .panel-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       background-color: #007AFF;
       color: #FFFFFF;
       text-decoration: none;
-      font-size: 1.1rem;
+      font-size: 1.05rem;
       font-weight: 600;
       padding: 12px 22px;
       border-radius: 10px;
+      border: none;
+      cursor: pointer;
       margin-right: 10px;
       margin-bottom: 10px;
+      font-family: inherit;
+    }
+
+    .toolbar-button.secondary,
+    .panel-button.secondary {
+      background-color: #F2F2F7;
+      color: #000000;
+    }
+
+    .toolbar-button.danger,
+    .panel-button.danger {
+      background-color: #FF3B30;
+      color: #FFFFFF;
+    }
+
+    #toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
     }
 
     #status {
@@ -102,8 +128,23 @@
       transform: translate(-50%, -50%);
     }
 
-    .price-annotation:hover {
-      background: #006EE6;
+    .corner-annotation {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #FFFFFF;
+      border: 2px solid #007AFF;
+      transform: translate(-50%, -50%);
+    }
+
+    .search-annotation {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #FF3B30;
+      border: 3px solid #FFFFFF;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      transform: translate(-50%, -50%);
     }
 
     .listing-callout {
@@ -128,6 +169,70 @@
       text-decoration: none;
     }
 
+    .panel-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.35);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      padding: 20px;
+    }
+
+    .panel-backdrop.active {
+      display: flex;
+    }
+
+    .panel {
+      width: min(520px, 100%);
+      background: #FFFFFF;
+      border-radius: 24px;
+      padding: 24px;
+      box-shadow: 0 18px 60px rgba(0,0,0,0.25);
+    }
+
+    .panel h2 {
+      margin: 0 0 18px 0;
+      font-size: 1.6rem;
+      line-height: 1.1;
+    }
+
+    .panel label {
+      display: block;
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin: 14px 0 6px 0;
+    }
+
+    .panel input,
+    .panel textarea {
+      width: 100%;
+      font: inherit;
+      border: 1px solid #D1D1D6;
+      border-radius: 10px;
+      padding: 10px 12px;
+      outline: none;
+    }
+
+    .panel textarea {
+      min-height: 90px;
+      resize: vertical;
+    }
+
+    .panel-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .small-note {
+      color: #666;
+      font-size: 0.95rem;
+      margin-top: 10px;
+    }
+
     @media (max-width: 700px) {
       body {
         padding: 24px;
@@ -141,6 +246,10 @@
         height: 70vh;
         min-height: 520px;
       }
+
+      .toolbar-button {
+        flex: 1 1 calc(50% - 8px);
+      }
     }
   </style>
 </head>
@@ -153,6 +262,14 @@
   </div>
 
   <div class="section map-section">
+    <div id="toolbar">
+      <button class="toolbar-button secondary" id="searchButton">Search</button>
+      <button class="toolbar-button secondary" id="locateButton">Locate</button>
+      <button class="toolbar-button" id="postButton">Post</button>
+      <button class="toolbar-button danger" id="clearButton">Clear</button>
+      <button class="toolbar-button secondary" id="accountButton">Account</button>
+    </div>
+
     <div id="status" hidden></div>
     <div id="map"></div>
   </div>
@@ -170,6 +287,64 @@
   <div class="section">
     <h1>Privacy Policy</h1>
     <p>Refer to Grid.</p>
+  </div>
+
+  <div class="panel-backdrop" id="searchPanel">
+    <div class="panel">
+      <h2>Search</h2>
+      <input id="searchInput" placeholder="Search address or city">
+      <div class="panel-actions">
+        <button class="panel-button" id="runSearchButton">Search</button>
+        <button class="panel-button secondary" data-close-panel>Cancel</button>
+      </div>
+      <div class="small-note">Search results are shown on the map.</div>
+    </div>
+  </div>
+
+  <div class="panel-backdrop" id="postPanel">
+    <div class="panel">
+      <h2>Post Listing</h2>
+
+      <label>Owner</label>
+      <input id="ownerInput" maxlength="250">
+
+      <label>Price</label>
+      <input id="priceInput" maxlength="250" placeholder="$500,000">
+
+      <label>Contact</label>
+      <input id="contactInput" maxlength="250">
+
+      <label>Address</label>
+      <input id="addressInput" maxlength="250">
+
+      <label>Description</label>
+      <textarea id="descriptionInput" maxlength="250"></textarea>
+
+      <label>Link</label>
+      <input id="linkInput" maxlength="250">
+
+      <label>Expiry Date</label>
+      <input id="expiryInput" type="date">
+
+      <div class="panel-actions">
+        <button class="panel-button" id="saveListingButton">Post</button>
+        <button class="panel-button secondary" data-close-panel>Cancel</button>
+      </div>
+
+      <div class="small-note" id="postNote">Tap at least 3 points on the map to create a border.</div>
+    </div>
+  </div>
+
+  <div class="panel-backdrop" id="accountPanel">
+    <div class="panel">
+      <h2>Account</h2>
+      <p id="accountStatus">Not signed in.</p>
+      <div class="panel-actions">
+        <button class="panel-button" id="signInButton">Sign in with iCloud</button>
+        <button class="panel-button danger" id="signOutButton">Sign Out</button>
+        <button class="panel-button secondary" data-close-panel>Close</button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -201,11 +376,23 @@
     };
 
     const MAPKIT_TOKEN = MAPKIT_TOKENS[window.location.hostname];
+
     const statusEl = document.getElementById("status");
+    const accountStatusEl = document.getElementById("accountStatus");
+
+    let container;
+    let publicDatabase;
+    let currentUserIdentity = null;
+
+    let savedOverlays = [];
+    let savedAnnotations = [];
+    let currentPoints = [];
+    let currentPreviewOverlays = [];
+    let currentCornerAnnotations = [];
+    let searchAnnotation = null;
 
     if (!MAPKIT_TOKEN) {
-      statusEl.hidden = false;
-      statusEl.textContent = "Missing MapKit token for this domain.";
+      showStatus("Missing MapKit token for this domain.");
     }
 
     CloudKit.configure({
@@ -220,6 +407,9 @@
         }
       ]
     });
+
+    container = CloudKit.getDefaultContainer();
+    publicDatabase = container.publicCloudDatabase;
 
     mapkit.init({
       authorizationCallback: function(done) {
@@ -244,13 +434,123 @@
 
     applyMapSettings();
     setStartupZoomedOutRegion();
+    setDefaultExpiryDate();
+
+    document.getElementById("searchButton").addEventListener("click", () => openPanel("searchPanel"));
+    document.getElementById("locateButton").addEventListener("click", locateUser);
+    document.getElementById("postButton").addEventListener("click", openPostPanel);
+    document.getElementById("clearButton").addEventListener("click", clearCurrentBorder);
+    document.getElementById("accountButton").addEventListener("click", openAccountPanel);
+    document.getElementById("runSearchButton").addEventListener("click", runSearch);
+    document.getElementById("saveListingButton").addEventListener("click", saveListing);
+    document.getElementById("signInButton").addEventListener("click", signIn);
+    document.getElementById("signOutButton").addEventListener("click", signOut);
+
+    document.querySelectorAll("[data-close-panel]").forEach(button => {
+      button.addEventListener("click", closePanels);
+    });
+
+    document.querySelectorAll(".panel-backdrop").forEach(panel => {
+      panel.addEventListener("click", event => {
+        if (event.target === panel) {
+          closePanels();
+        }
+      });
+    });
+
+    document.getElementById("searchInput").addEventListener("keydown", event => {
+      if (event.key === "Enter") {
+        runSearch();
+      }
+    });
+
+    document.getElementById("map").addEventListener("click", handleMapClick);
+
+    initializeAuth();
+    loadBorders();
+
+    async function initializeAuth() {
+      try {
+        if (typeof container.setUpAuth === "function") {
+          const identity = await container.setUpAuth();
+          if (identity) {
+            currentUserIdentity = identity;
+          }
+        }
+
+        updateAccountStatus();
+
+        if (typeof container.whenUserSignsIn === "function") {
+          container.whenUserSignsIn().then(identity => {
+            currentUserIdentity = identity;
+            updateAccountStatus();
+          });
+        }
+
+        if (typeof container.whenUserSignsOut === "function") {
+          container.whenUserSignsOut().then(() => {
+            currentUserIdentity = null;
+            updateAccountStatus();
+          });
+        }
+      } catch (error) {
+        console.error(error);
+        updateAccountStatus();
+      }
+    }
+
+    async function signIn() {
+      try {
+        const identity = await container.signIn();
+        currentUserIdentity = identity;
+        updateAccountStatus();
+      } catch (error) {
+        console.error(error);
+        showStatus("Could not sign in with iCloud.");
+      }
+    }
+
+    async function signOut() {
+      try {
+        await container.signOut();
+        currentUserIdentity = null;
+        updateAccountStatus();
+      } catch (error) {
+        console.error(error);
+        showStatus("Could not sign out.");
+      }
+    }
+
+    function updateAccountStatus() {
+      const recordName = getUserRecordName();
+
+      if (recordName) {
+        accountStatusEl.textContent = "Signed in with iCloud.";
+      } else {
+        accountStatusEl.textContent = "Not signed in.";
+      }
+
+      document.getElementById("signOutButton").style.display = recordName ? "inline-flex" : "none";
+      document.getElementById("signInButton").style.display = recordName ? "none" : "inline-flex";
+    }
+
+    function getUserRecordName() {
+      if (!currentUserIdentity) {
+        return "";
+      }
+
+      return (
+        currentUserIdentity.userRecordName ||
+        currentUserIdentity.recordName ||
+        currentUserIdentity.userRecordID?.recordName ||
+        currentUserIdentity.userRecord?.recordName ||
+        ""
+      );
+    }
 
     async function loadBorders() {
       try {
-        const container = CloudKit.getDefaultContainer();
-        const database = container.publicCloudDatabase;
-
-        const response = await database.performQuery({
+        const response = await publicDatabase.performQuery({
           recordType: "Border",
           desiredKeys: [
             "points",
@@ -268,8 +568,7 @@
 
         const records = response.records || [];
 
-        const overlays = [];
-        const annotations = [];
+        removeSavedMapItems();
 
         records.forEach(record => {
           const fields = record.fields || {};
@@ -298,7 +597,7 @@
             fillColor: "rgba(0, 122, 255, 0.25)"
           });
 
-          overlays.push(polygon);
+          savedOverlays.push(polygon);
 
           const center = polygonCenter(points);
 
@@ -315,28 +614,313 @@
             }
           );
 
-          annotations.push(annotation);
+          savedAnnotations.push(annotation);
         });
 
-        if (overlays.length > 0) {
-          map.addOverlays(overlays);
-          map.addAnnotations(annotations);
-
+        if (savedOverlays.length > 0) {
+          map.addOverlays(savedOverlays);
+          map.addAnnotations(savedAnnotations);
           applyMapSettings();
           setStartupZoomedOutRegion();
-
-          statusEl.textContent = `Showing ${overlays.length} Grid listing${overlays.length === 1 ? "" : "s"}.`;
         } else {
-          statusEl.textContent = "No Grid listings found yet.";
           setStartupZoomedOutRegion();
         }
-
       } catch (error) {
         console.error(error);
-        statusEl.hidden = false;
-        statusEl.textContent = "Could not load Grid listings: " + (error.message || error);
+        showStatus("Could not load Grid listings: " + (error.message || error));
         setStartupZoomedOutRegion();
       }
+    }
+
+    function removeSavedMapItems() {
+      if (savedOverlays.length > 0) {
+        map.removeOverlays(savedOverlays);
+      }
+
+      if (savedAnnotations.length > 0) {
+        map.removeAnnotations(savedAnnotations);
+      }
+
+      savedOverlays = [];
+      savedAnnotations = [];
+    }
+
+    function handleMapClick(event) {
+      if (event.target.closest(".price-annotation")) {
+        return;
+      }
+
+      if (event.target.closest(".mk-map-view")) {
+        const coordinate = map.convertPointOnPageToCoordinate(
+          new DOMPoint(event.pageX, event.pageY)
+        );
+
+        if (!coordinate || currentPoints.length >= 9) {
+          return;
+        }
+
+        currentPoints.push({
+          latitude: coordinate.latitude,
+          longitude: coordinate.longitude
+        });
+
+        updateCurrentBorderPreview();
+      }
+    }
+
+    function updateCurrentBorderPreview() {
+      clearCurrentPreviewOnly();
+
+      const coordinates = currentPoints.map(point => {
+        return new mapkit.Coordinate(point.latitude, point.longitude);
+      });
+
+      if (coordinates.length >= 2) {
+        const line = new mapkit.PolylineOverlay(coordinates);
+        line.style = new mapkit.Style({
+          strokeColor: "#007AFF",
+          lineWidth: 4
+        });
+        currentPreviewOverlays.push(line);
+      }
+
+      if (coordinates.length >= 3) {
+        const polygon = new mapkit.PolygonOverlay(coordinates);
+        polygon.style = new mapkit.Style({
+          strokeColor: "#007AFF",
+          lineWidth: 4,
+          fillColor: "rgba(0, 122, 255, 0.30)"
+        });
+        currentPreviewOverlays.push(polygon);
+      }
+
+      currentPoints.forEach(point => {
+        const annotation = new mapkit.Annotation(
+          new mapkit.Coordinate(point.latitude, point.longitude),
+          function() {
+            const element = document.createElement("div");
+            element.className = "corner-annotation";
+            return element;
+          }
+        );
+
+        currentCornerAnnotations.push(annotation);
+      });
+
+      if (currentPreviewOverlays.length > 0) {
+        map.addOverlays(currentPreviewOverlays);
+      }
+
+      if (currentCornerAnnotations.length > 0) {
+        map.addAnnotations(currentCornerAnnotations);
+      }
+    }
+
+    function clearCurrentBorder() {
+      currentPoints = [];
+      clearCurrentPreviewOnly();
+      showStatus("");
+    }
+
+    function clearCurrentPreviewOnly() {
+      if (currentPreviewOverlays.length > 0) {
+        map.removeOverlays(currentPreviewOverlays);
+      }
+
+      if (currentCornerAnnotations.length > 0) {
+        map.removeAnnotations(currentCornerAnnotations);
+      }
+
+      currentPreviewOverlays = [];
+      currentCornerAnnotations = [];
+    }
+
+    function openPostPanel() {
+      if (currentPoints.length < 3) {
+        showStatus("Tap at least 3 points on the map before posting.");
+        return;
+      }
+
+      openPanel("postPanel");
+    }
+
+    async function saveListing() {
+      try {
+        if (currentPoints.length < 3) {
+          showStatus("Tap at least 3 points on the map before posting.");
+          return;
+        }
+
+        if (!getUserRecordName()) {
+          await signIn();
+
+          if (!getUserRecordName()) {
+            showStatus("Sign in with iCloud before posting.");
+            return;
+          }
+        }
+
+        const now = new Date();
+        const expiryValue = document.getElementById("expiryInput").value;
+        const expiryDate = expiryValue
+          ? new Date(expiryValue + "T23:59:59")
+          : new Date(now.getTime() + 365 * 24 * 3600 * 1000);
+
+        const record = {
+          recordType: "Border",
+          fields: {
+            points: {
+              value: currentPoints.map(point => ({
+                latitude: point.latitude,
+                longitude: point.longitude
+              }))
+            },
+            owner: { value: textValue("ownerInput") },
+            price: { value: textValue("priceInput") },
+            contact: { value: textValue("contactInput") },
+            address: { value: textValue("addressInput") },
+            description: { value: textValue("descriptionInput") },
+            link: { value: textValue("linkInput") },
+            areaText: { value: "" },
+            creatorID: { value: getUserRecordName() },
+            createdDate: { value: now.toISOString() },
+            expiryDate: { value: expiryDate.toISOString() }
+          }
+        };
+
+        await publicDatabase.saveRecords(record);
+
+        closePanels();
+        clearPostFields();
+        clearCurrentBorder();
+        await loadBorders();
+
+        showStatus("Listing posted.");
+      } catch (error) {
+        console.error(error);
+        showStatus("Could not post listing: " + (error.message || error));
+      }
+    }
+
+    function clearPostFields() {
+      [
+        "ownerInput",
+        "priceInput",
+        "contactInput",
+        "addressInput",
+        "descriptionInput",
+        "linkInput"
+      ].forEach(id => {
+        document.getElementById(id).value = "";
+      });
+
+      setDefaultExpiryDate();
+    }
+
+    function setDefaultExpiryDate() {
+      const date = new Date(Date.now() + 365 * 24 * 3600 * 1000);
+      document.getElementById("expiryInput").value = date.toISOString().split("T")[0];
+    }
+
+    function textValue(id) {
+      return document.getElementById(id).value.trim().slice(0, 250);
+    }
+
+    function runSearch() {
+      const query = document.getElementById("searchInput").value.trim();
+
+      if (!query) {
+        return;
+      }
+
+      const search = new mapkit.Search({
+        region: map.region
+      });
+
+      search.search(query, function(error, data) {
+        if (error) {
+          console.error(error);
+          showStatus("Search failed.");
+          return;
+        }
+
+        const place = data.places && data.places[0];
+
+        if (!place || !place.coordinate) {
+          showStatus("No search result found.");
+          return;
+        }
+
+        if (searchAnnotation) {
+          map.removeAnnotation(searchAnnotation);
+        }
+
+        searchAnnotation = new mapkit.Annotation(
+          place.coordinate,
+          function() {
+            const element = document.createElement("div");
+            element.className = "search-annotation";
+            return element;
+          }
+        );
+
+        searchAnnotation.title = place.name || query;
+
+        map.addAnnotation(searchAnnotation);
+
+        map.region = new mapkit.CoordinateRegion(
+          place.coordinate,
+          new mapkit.CoordinateSpan(0.05, 0.05)
+        );
+
+        closePanels();
+      });
+    }
+
+    function locateUser() {
+      if (!navigator.geolocation) {
+        showStatus("Location is not available in this browser.");
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        position => {
+          const coordinate = new mapkit.Coordinate(
+            position.coords.latitude,
+            position.coords.longitude
+          );
+
+          map.region = new mapkit.CoordinateRegion(
+            coordinate,
+            new mapkit.CoordinateSpan(0.05, 0.05)
+          );
+        },
+        error => {
+          console.error(error);
+          showStatus("Could not find your location.");
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 30000
+        }
+      );
+    }
+
+    function openAccountPanel() {
+      updateAccountStatus();
+      openPanel("accountPanel");
+    }
+
+    function openPanel(id) {
+      closePanels();
+      document.getElementById(id).classList.add("active");
+    }
+
+    function closePanels() {
+      document.querySelectorAll(".panel-backdrop").forEach(panel => {
+        panel.classList.remove("active");
+      });
     }
 
     function createPriceAnnotation(coordinate, price, data) {
@@ -518,7 +1102,16 @@
       };
     }
 
-    loadBorders();
+    function showStatus(message) {
+      if (!message) {
+        statusEl.hidden = true;
+        statusEl.textContent = "";
+        return;
+      }
+
+      statusEl.hidden = false;
+      statusEl.textContent = message;
+    }
   </script>
 
 </body>
