@@ -523,6 +523,10 @@
     let currentCornerMarkers = [];
     let searchMarker = null;
 
+    let markerFrameRequested = false;
+    let markerTrackingActive = false;
+    let markerTrackingStopTimer = null;
+
     let backendConfigPromise = null;
     let stripeInstance = null;
     let stripeElements = null;
@@ -1550,7 +1554,11 @@
 
       events.forEach(eventName => {
         try {
-          map.addEventListener(eventName, scheduleMarkerPositionUpdate);
+          map.addEventListener(eventName, () => {
+            startContinuousMarkerTracking();
+            scheduleMarkerPositionUpdate();
+            stopContinuousMarkerTrackingSoon();
+          });
         } catch {}
       });
 
@@ -1561,20 +1569,19 @@
       mapElement.addEventListener("pointermove", scheduleMarkerPositionUpdate);
       mapElement.addEventListener("pointerup", stopContinuousMarkerTrackingSoon);
       mapElement.addEventListener("pointercancel", stopContinuousMarkerTrackingSoon);
+
       mapElement.addEventListener("touchstart", startContinuousMarkerTracking, { passive: true });
       mapElement.addEventListener("touchmove", scheduleMarkerPositionUpdate, { passive: true });
       mapElement.addEventListener("touchend", stopContinuousMarkerTrackingSoon, { passive: true });
+
       mapElement.addEventListener("wheel", () => {
         startContinuousMarkerTracking();
+        scheduleMarkerPositionUpdate();
         stopContinuousMarkerTrackingSoon();
       }, { passive: true });
 
       startAlwaysOnMarkerTracking();
     }
-
-    let markerFrameRequested = false;
-    let markerTrackingActive = false;
-    let markerTrackingStopTimer = null;
 
     function scheduleMarkerPositionUpdate() {
       if (markerFrameRequested) {
@@ -1597,7 +1604,7 @@
         markerTrackingStopTimer = null;
       }
 
-      continuousMarkerTrackingFrame();
+      requestAnimationFrame(continuousMarkerTrackingFrame);
     }
 
     function stopContinuousMarkerTrackingSoon() {
@@ -1608,7 +1615,7 @@
       markerTrackingStopTimer = setTimeout(() => {
         markerTrackingActive = false;
         updateAllDomMarkerPositions();
-      }, 800);
+      }, 700);
     }
 
     function continuousMarkerTrackingFrame() {
