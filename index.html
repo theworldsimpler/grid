@@ -2,32 +2,41 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Grid</title>
+
+  <meta http-equiv="refresh" content="0; url=./Grid.pdf">
 
   <style>
     html,
     body {
-      width: 100%;
-      height: 100%;
       margin: 0;
-      overflow: hidden;
-      background: #ffffff;
-    }
-
-    iframe {
       width: 100%;
       height: 100%;
-      display: block;
-      border: 0;
+      background: #ffffff;
     }
   </style>
 </head>
 
 <body>
-  <iframe
-    src="/grid/Grid.pdf#view=FitH"
-    title="Grid PDF">
-  </iframe>
+  <script>
+    (() => {
+      let path = window.location.pathname;
+
+      if (path.endsWith("/index.html")) {
+        path = path.slice(0, -"index.html".length);
+      } else if (!path.endsWith("/")) {
+        path += "/";
+      }
+
+      window.location.replace(
+        `${path}Grid.pdf${window.location.search}${window.location.hash}`
+      );
+    })();
+  </script>
+
+  <noscript>
+    <a href="./Grid.pdf">Open the Grid PDF</a>
+  </noscript>
 </body>
 </html>
